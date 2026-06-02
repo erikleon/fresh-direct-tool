@@ -7,17 +7,17 @@ dependencies = [
     "playwright>=1.44",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    "sqlmodel>=0.0.19",
     "typer>=0.12",
     "rich>=13.7",
     "python-dateutil>=2.9",
 ]
 
 [project.optional-dependencies]
-# Pulled in starting Phase 1+; kept separate so the Phase 0 spike stays lean.
+# Pulled in starting Phase 2/3; kept separate so the core stays lean.
 app = [
     "fastapi>=0.111",
     "uvicorn[standard]>=0.30",
-    "sqlmodel>=0.0.19",
     "jinja2>=3.1",
     "apscheduler>=3.10",
     "anthropic>=0.34",

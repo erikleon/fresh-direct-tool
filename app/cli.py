@@ -16,7 +16,8 @@ from rich.table import Table
 
 from app.config import get_settings
 from app.freshdirect.base import Order, SessionExpired
-from app.freshdirect.history import fetch_order_history, parse_pasted_history
+from app.freshdirect.client import fetch_order_history
+from app.freshdirect.history import parse_pasted_history
 from app.freshdirect.session import capture_session
 
 app = typer.Typer(add_completion=False, help="FreshDirect Weekly Planner (Phase 0)")
@@ -90,6 +91,124 @@ def debug_net(
     console.print(f"\nAPI-ish endpoints seen ({len(result.candidates)}):")
     for url_ in result.candidates:
         console.print(f"  {url_}")
+
+
+@app.command()
+def backfill(
+    limit: int = typer.Option(500, help="Max recent orders to sync"),
+    headed: bool = typer.Option(False, help="Run visibly (clears some bot challenges)"),
+) -> None:
+    """Sync full order history (with line items) into the local database.
+
+    Resumable: re-running only fetches orders whose details aren't stored yet.
+    """
+    from app.ingest import backfill as run_backfill
+
+    try:
+        result = run_backfill(
+            get_settings(), limit=limit, headed=headed, progress=console.print
+        )
+    except SessionExpired as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"\n[green]Backfill done.[/green] {result.orders_seen} orders seen, "
+        f"{result.details_fetched} newly detailed, {result.skipped} already current."
+    )
+
+
+@app.command()
+def spend() -> None:
+    """Show spend totals, monthly trend, and category breakdown from the DB."""
+    from app.analytics import spend_summary
+    from app.money import dollars
+
+    s = spend_summary(get_settings())
+    if s.order_count == 0:
+        console.print("[yellow]No orders yet — run `fdplanner backfill` first.[/yellow]")
+        return
+
+    console.print(
+        f"[bold]{s.order_count} orders[/bold] · {dollars(s.total_cents)} total · "
+        f"{dollars(s.avg_order_cents)} avg · {s.first_date} → {s.last_date}\n"
+    )
+
+    by_month = Table(title="Spend by month", title_justify="left")
+    by_month.add_column("Month")
+    by_month.add_column("Orders", justify="right")
+    by_month.add_column("Spent", justify="right")
+    for ym, cents, count in s.by_month:
+        by_month.add_row(ym, str(count), dollars(cents))
+    console.print(by_month)
+
+    by_cat = Table(title="Spend by category", title_justify="left")
+    by_cat.add_column("Category")
+    by_cat.add_column("Spent", justify="right")
+    for cat, cents in s.by_category[:15]:
+        by_cat.add_row(cat, dollars(cents))
+    console.print(by_cat)
+
+
+@app.command()
+def due(
+    limit: int = typer.Option(25, help="How many predictions to show"),
+    min_purchases: int = typer.Option(3, help="Min times bought to predict"),
+    horizon: int = typer.Option(
+        7, help="Only items due within this many days (use --all to ignore)"
+    ),
+    all_: bool = typer.Option(
+        False, "--all", help="Include out-of-rotation and far-future items"
+    ),
+) -> None:
+    """Show active staples predicted due for restock, most overdue first.
+
+    By default this is a *this-week* shopping signal: items still in rotation,
+    due within `horizon` days. `--all` shows everything (including items that
+    fell out of rotation, which read as wildly overdue).
+    """
+    from app.analytics import replenishment
+
+    preds = replenishment(get_settings(), min_purchases=min_purchases)
+    if not preds:
+        console.print(
+            "[yellow]Not enough detailed history yet — run `fdplanner backfill`.[/yellow]"
+        )
+        return
+
+    if not all_:
+        preds = [p for p in preds if p.active and p.days_overdue >= -horizon]
+
+    title = (
+        "Replenishment forecast (all items)"
+        if all_
+        else f"Active staples — due now, or within {horizon}d"
+    )
+    table = Table(title=title, title_justify="left")
+    table.add_column("Item")
+    table.add_column("×", justify="right")
+    table.add_column("Every", justify="right")
+    table.add_column("Last")
+    table.add_column("Predicted")
+    table.add_column("Status")
+    for p in preds[:limit]:
+        if p.days_overdue >= 0:
+            status = f"[red]due (+{p.days_overdue}d)[/red]"
+        else:
+            status = f"[green]in {-p.days_overdue}d[/green]"
+        if all_ and not p.active:
+            status += " [dim](dropped)[/dim]"
+        table.add_row(
+            p.name,
+            str(p.times_bought),
+            f"{p.mean_interval_days:g}d",
+            str(p.last_purchased),
+            str(p.predicted_next),
+            status,
+        )
+    console.print(table)
+    if not all_:
+        console.print(f"\n[green]{len(preds)} active item(s) due within {horizon}d.[/green]")
 
 
 @app.command("import-paste")

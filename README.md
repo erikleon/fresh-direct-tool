@@ -19,7 +19,7 @@ off a ready-to-checkout cart.
 | Phase | Scope | State |
 |------|-------|-------|
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
-| 1 | Data model, replenishment cadence, spend-tracking dashboard | planned |
+| 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
 | 2 | AI meal planning, SKU matching, budget swaps → draft plan | planned |
 | 3 | Review dashboard, approve → cart hand-off, email digest, scheduler | planned |
 | 4 | (future) Auto-checkout behind a flag | planned |
@@ -51,6 +51,23 @@ uv run fdplanner history --limit 5 --headed
 uv run fdplanner import-paste path/to/orders.txt
 ```
 
+## Phase 1 usage (analytics)
+
+```bash
+# One-time (resumable): sync full history + line items into ./data/fdplanner.sqlite
+uv run fdplanner backfill
+
+# Spend totals, monthly trend, category breakdown
+uv run fdplanner spend
+
+# Items predicted due for restock, most overdue first
+uv run fdplanner due
+```
+
+Money is stored as integer cents (`app/money.py`) so sums stay exact. The
+replenishment forecast (`app/analytics.py`) estimates each item's buying cadence
+from how often it appears across orders and flags what's due.
+
 > **Why real Chrome?** FreshDirect uses Akamai Bot Manager, which 403s throwaway
 > automation (Playwright's bundled Chromium advertises `navigator.webdriver`). We
 > drive real Google Chrome (`channel="chrome"`) from a dedicated persistent
@@ -74,10 +91,16 @@ uv run fdplanner import-paste path/to/orders.txt
 ```
 app/
   config.py            # settings (env-driven)
-  cli.py               # Phase 0 CLI (login / history / import-paste / debug-*)
+  cli.py               # CLI: login / history / backfill / spend / due / import-paste
+  money.py             # Decimal dollars <-> integer cents
+  db.py, models.py     # SQLite engine + SQLModel tables (orders, order_items)
+  ingest.py            # resumable backfill into the DB
+  analytics.py         # spend summary + replenishment cadence (pure + DB-backed)
   freshdirect/         # automation adapter, isolated behind an interface
     base.py            #   adapter Protocol + domain models (Order/OrderItem/Address)
     session.py         #   real-Chrome login + persistent-profile reuse
-    history.py         #   GraphQL interception (ordersHistory/order) + paste fallback
+    client.py          #   booted SPA session: order_summaries / order_lines
+    parse.py           #   GraphQL/text → domain models (pure, tested)
+    history.py         #   paste fallback
     debug.py           #   dev tools: dump page HTML, capture network/API
 ```
