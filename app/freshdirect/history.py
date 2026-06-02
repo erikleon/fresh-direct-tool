@@ -36,14 +36,18 @@ _SEL = {
 }
 
 
-def scrape_order_history(settings: Settings, limit: int = 10) -> list[Order]:
+def scrape_order_history(
+    settings: Settings, limit: int = 10, headed: bool = False
+) -> list[Order]:
     """Scrape up to ``limit`` recent orders from the authenticated account.
 
-    Raises :class:`~app.freshdirect.base.SessionExpired` via ``ensure_logged_in``
-    when the saved session is no longer valid.
+    ``headed=True`` runs visibly on the warm profile, which can clear an Akamai
+    challenge that a headless reuse occasionally trips. Raises
+    :class:`~app.freshdirect.base.SessionExpired` via ``ensure_logged_in`` when
+    the saved session is no longer valid.
     """
     orders: list[Order] = []
-    with browser_context(settings) as (_context, page):
+    with browser_context(settings, headless=not headed) as (_context, page):
         page.goto(settings.fd_account_url, timeout=settings.nav_timeout_ms)
         ensure_logged_in(page, settings)
         page.wait_for_load_state("networkidle")

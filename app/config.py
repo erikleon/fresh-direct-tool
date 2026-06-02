@@ -1,8 +1,8 @@
 """Central configuration.
 
 Settings load from environment variables (prefix ``FDPLANNER_``) and an optional
-``.env`` file. Nothing here should ever be logged — it carries the encryption key
-that protects the stored FreshDirect session.
+``.env`` file. The FreshDirect session itself lives in a persistent Chrome
+profile (see ``chrome_profile_dir``), not here.
 """
 
 from __future__ import annotations
@@ -27,20 +27,19 @@ class Settings(BaseSettings):
 
     # --- Storage ---------------------------------------------------------
     data_dir: Path = Field(default=ROOT / "data")
-    """Directory for the SQLite DB and the encrypted session blob."""
+    """Directory for the SQLite DB and the persistent Chrome profile."""
 
     # --- FreshDirect -----------------------------------------------------
     fd_base_url: str = "https://www.freshdirect.com"
     fd_account_url: str = "https://www.freshdirect.com/account/orders.jsp"
     """Order-history landing page. Verified/adjusted during the Phase 0 spike."""
 
-    # --- Security --------------------------------------------------------
-    # Fernet key (base64, 32 bytes) used to encrypt the Playwright storage_state.
-    # If unset, app.security generates one and persists it to ``data/secret.key``
-    # with 0600 perms (local-first convenience; set explicitly in production).
-    encryption_key: str | None = None
-
     # --- Browser ---------------------------------------------------------
+    # We drive real Google Chrome (channel below) from a dedicated, persistent
+    # profile so Akamai's bot defense sees a genuine, "warm" browser rather than
+    # throwaway automation. The profile's cookies are encrypted at rest by the
+    # OS keychain (Chrome Safe Storage), so no extra app-level crypto is needed.
+    browser_channel: str = "chrome"
     headless: bool = True
     """Session *capture* always runs headed regardless; scrapes run per this flag."""
     nav_timeout_ms: int = 45_000
@@ -50,12 +49,9 @@ class Settings(BaseSettings):
     planner_model: str = "claude-opus-4-8"
 
     @property
-    def session_path(self) -> Path:
-        return self.data_dir / "storage_state.enc"
-
-    @property
-    def key_path(self) -> Path:
-        return self.data_dir / "secret.key"
+    def chrome_profile_dir(self) -> Path:
+        """Dedicated persistent Chrome profile holding the FreshDirect session."""
+        return self.data_dir / "chrome_profile"
 
     @property
     def db_path(self) -> Path:

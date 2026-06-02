@@ -36,33 +36,40 @@ uv run playwright install chromium
 ## Phase 0 usage
 
 ```bash
-# One-time: opens a real browser window so you can log in (handles 2FA/captcha).
-# The resulting session is encrypted and saved under ./data/.
+# One-time: opens real Google Chrome so you can log in (handles 2FA/captcha).
+# The session persists in a dedicated Chrome profile under ./data/.
 uv run fdplanner login
 
 # Scrape and print your most recent orders to confirm the pipeline works.
 uv run fdplanner history --limit 5
+# If a headless scrape gets challenged, run it visibly on the warm profile:
+uv run fdplanner history --limit 5 --headed
 
 # If automation is blocked, paste an order export instead:
 uv run fdplanner import-paste path/to/orders.txt
 ```
 
+> **Why real Chrome?** FreshDirect uses Akamai Bot Manager, which 403s throwaway
+> automation (Playwright's bundled Chromium advertises `navigator.webdriver`). We
+> drive real Google Chrome (`channel="chrome"`) from a dedicated persistent
+> profile with the automation flags removed, so the browser looks genuine.
+
 ## Security notes
 
-- The Playwright `storage_state` is encrypted with Fernet (`app/security.py`).
-- The key lives in `data/secret.key` (0600) unless you set
-  `FDPLANNER_ENCRYPTION_KEY`. Keep the key and the session blob in separate backups.
-- `data/`, `.env`, and `storage_state*` are git-ignored. Never commit them.
+- The FreshDirect session lives in a **dedicated** Chrome profile at
+  `data/chrome_profile/` — never your main Chrome profile. Its cookies are
+  encrypted at rest by the OS keychain (Chrome Safe Storage).
+- `data/` and `.env` are git-ignored. Never commit them.
 
 ## Layout
 
 ```
 app/
   config.py            # settings (env-driven)
-  security.py          # session encryption
-  cli.py               # Phase 0 CLI (login / history / import-paste)
+  cli.py               # Phase 0 CLI (login / history / debug-dump / import-paste)
   freshdirect/         # Playwright adapter, isolated behind an interface
     base.py            #   adapter Protocol + domain models
-    session.py         #   login capture + session reuse
+    session.py         #   real-Chrome login + persistent-profile reuse
     history.py         #   order-history scrape + paste fallback
+    debug.py           #   dev tool: dump live DOM for selector tuning
 ```

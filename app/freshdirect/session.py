@@ -1,60 +1,111 @@
-"""FreshDirect session lifecycle: capture once (headed), reuse many times.
+"""FreshDirect session lifecycle: log in once (headed), reuse many times.
 
-Login may involve 2FA or a captcha, which we don't try to automate. Instead the
-user logs in once in a real browser window; we persist the resulting
-``storage_state`` (encrypted) and reuse it for headless scrapes until it expires.
+FreshDirect fronts the site with Akamai Bot Manager, which blocks throwaway
+automation (Playwright's bundled Chromium advertises ``navigator.webdriver`` and
+automation flags → HTTP 403). To get through we drive **real Google Chrome** from
+a dedicated, persistent profile with the automation tells removed, so the browser
+looks like — and over time behaves like — a genuine human session.
+
+Login may involve 2FA/captcha, which we don't automate: the user signs in once in
+the real Chrome window (clearing any challenge as a human), and the resulting
+cookies persist in the profile for later headless scrapes.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import threading
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Iterator
 
-from playwright.sync_api import BrowserContext, Page, sync_playwright
+from playwright.sync_api import BrowserContext, Error as PlaywrightError, Page, sync_playwright
 
 from app.config import Settings
 from app.freshdirect.base import SessionExpired
-from app.security import decrypt, encrypt
+
+# Removes the most common automation tells before any page script runs.
+_STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+window.chrome = window.chrome || { runtime: {} };
+"""
+
+_LAUNCH_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-first-run",
+    "--no-default-browser-check",
+]
+
+_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+)
 
 
 def has_session(settings: Settings) -> bool:
-    return settings.session_path.exists()
+    """True once a profile has been created by a prior login."""
+    profile = settings.chrome_profile_dir
+    return profile.exists() and any(profile.iterdir())
+
+
+@contextmanager
+def _persistent_context(
+    settings: Settings, headless: bool
+) -> Iterator[tuple[BrowserContext, Page]]:
+    """Launch real Chrome on the dedicated profile with stealth applied."""
+    settings.ensure_dirs()
+    settings.chrome_profile_dir.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as p:
+        kwargs = dict(
+            user_data_dir=str(settings.chrome_profile_dir),
+            headless=headless,
+            args=_LAUNCH_ARGS,
+            user_agent=_USER_AGENT,
+            locale="en-US",
+            timezone_id="America/New_York",
+            viewport={"width": 1440, "height": 900},
+        )
+        try:
+            context = p.chromium.launch_persistent_context(
+                channel=settings.browser_channel, **kwargs
+            )
+        except PlaywrightError:
+            # Real Chrome not found under the configured channel — fall back to
+            # the bundled Chromium (more likely to be blocked, but better than
+            # failing outright).
+            context = p.chromium.launch_persistent_context(**kwargs)
+
+        context.add_init_script(_STEALTH_JS)
+        page = context.pages[0] if context.pages else context.new_page()
+        page.set_default_timeout(settings.nav_timeout_ms)
+        try:
+            yield context, page
+        finally:
+            context.close()
 
 
 def capture_session(settings: Settings, timeout_s: int = 300) -> None:
-    """Open a real browser window, let the user log in, then save the session.
+    """Open a real Chrome window, let the user log in, then keep the profile.
 
-    Completion is signalled by pressing Enter; if Enter never arrives (e.g. the
-    command runs without an interactive stdin) we auto-snapshot after
-    ``timeout_s`` so the call can never hang. Either way the user has the full
-    window of time to finish login, including 2FA / captcha.
+    Completion is signalled by pressing Enter; if Enter never arrives (e.g. no
+    interactive stdin) we stop after ``timeout_s`` so the call can't hang. The
+    session lives in the persistent profile — there is nothing else to save.
     """
-    settings.ensure_dirs()
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context()
-        page = context.new_page()
-        page.goto(settings.fd_base_url, timeout=settings.nav_timeout_ms)
+    with _persistent_context(settings, headless=False) as (_context, page):
+        try:
+            page.goto(settings.fd_base_url, timeout=settings.nav_timeout_ms)
+        except PlaywrightError:
+            pass  # let the user navigate manually even if the first load hiccups
 
         print(
-            "\nA browser window has opened. Log into FreshDirect "
+            "\nA Chrome window has opened. Log into FreshDirect "
             "(complete any 2FA/captcha).\n"
-            f"Press Enter here when done, or it auto-saves after {timeout_s}s."
+            f"Press Enter here when done, or it finishes after {timeout_s}s."
         )
         _wait_for_user(timeout_s)
 
-        state_json = context.storage_state()  # dict
-        blob = encrypt(json.dumps(state_json).encode(), settings)
-        settings.session_path.write_bytes(blob)
-        os.chmod(settings.session_path, 0o600)
-        context.close()
-        browser.close()
-    print(f"Session saved (encrypted) to {settings.session_path}")
+    print(f"Session captured. Profile: {settings.chrome_profile_dir}")
 
 
 def _wait_for_user(timeout_s: int) -> None:
@@ -62,7 +113,7 @@ def _wait_for_user(timeout_s: int) -> None:
 
     Reading stdin on a background thread keeps the wait bounded: a
     non-interactive stdin raises ``EOFError`` and is ignored, so we fall through
-    to the timeout instead of saving a logged-out session prematurely.
+    to the timeout rather than finishing prematurely.
     """
     done = threading.Event()
 
@@ -75,45 +126,26 @@ def _wait_for_user(timeout_s: int) -> None:
 
     threading.Thread(target=reader, daemon=True).start()
     if not done.wait(timeout=timeout_s):
-        print(f"\nNo Enter received in {timeout_s}s — saving current session state.")
+        print(f"\nNo Enter received in {timeout_s}s — continuing.")
 
 
 @contextmanager
 def browser_context(
     settings: Settings, headless: bool | None = None
 ) -> Iterator[tuple[BrowserContext, Page]]:
-    """Yield an authenticated (context, page) built from the saved session.
+    """Yield an authenticated (context, page) from the saved Chrome profile.
 
-    Raises :class:`SessionExpired` if no session has been captured yet. Whether
-    the *current* session is still valid is determined by the caller after
-    navigation (see :func:`ensure_logged_in`).
+    Raises :class:`SessionExpired` if no profile has been created yet. Whether
+    the session is still *valid* is determined by the caller after navigation
+    (see :func:`ensure_logged_in`).
     """
     if not has_session(settings):
         raise SessionExpired(
             "No saved FreshDirect session. Run `fdplanner login` first."
         )
-
-    state = decrypt(settings.session_path.read_bytes(), settings)
     headless = settings.headless if headless is None else headless
-
-    # Playwright reads storage_state from a path at context creation; write it to
-    # a temp file, then delete immediately so the decrypted session never lingers.
-    tmp = Path(tempfile.mkstemp(suffix=".json")[1])
-    try:
-        tmp.write_bytes(state)
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            context = browser.new_context(storage_state=str(tmp))
-            tmp.unlink(missing_ok=True)  # decrypted copy no longer needed
-            page = context.new_page()
-            page.set_default_timeout(settings.nav_timeout_ms)
-            try:
-                yield context, page
-            finally:
-                context.close()
-                browser.close()
-    finally:
-        tmp.unlink(missing_ok=True)
+    with _persistent_context(settings, headless=headless) as (context, page):
+        yield context, page
 
 
 def ensure_logged_in(page: Page, settings: Settings) -> None:

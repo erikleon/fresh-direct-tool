@@ -26,19 +26,21 @@ class DumpResult:
     looks_logged_out: bool
 
 
-def dump_orders_page(settings: Settings, url: str | None = None) -> DumpResult:
+def dump_orders_page(
+    settings: Settings, url: str | None = None, headed: bool = False
+) -> DumpResult:
     """Navigate to the orders page and capture HTML + a full-page screenshot.
 
     Reports how many elements each current selector matches so we can see at a
     glance which ones are wrong, and saves artifacts under ``data/`` for review.
+    ``headed=True`` runs visibly, which can clear a bot challenge headless trips.
     """
     settings.ensure_dirs()
     target = url or settings.fd_account_url
     html_path = settings.data_dir / "orders_page.html"
     shot_path = settings.data_dir / "orders_page.png"
 
-    # Headless can trip bot defenses; allow override so we can retry headed.
-    with browser_context(settings) as (_context, page):
+    with browser_context(settings, headless=not headed) as (_context, page):
         page.goto(target, wait_until="domcontentloaded", timeout=settings.nav_timeout_ms)
         try:
             page.wait_for_load_state("networkidle", timeout=settings.nav_timeout_ms)

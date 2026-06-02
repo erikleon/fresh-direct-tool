@@ -24,15 +24,18 @@ console = Console()
 
 @app.command()
 def login() -> None:
-    """Open a browser, log into FreshDirect, and save the session (encrypted)."""
+    """Open real Chrome, log into FreshDirect, and persist the session profile."""
     capture_session(get_settings())
 
 
 @app.command()
-def history(limit: int = typer.Option(10, help="How many recent orders to show")) -> None:
+def history(
+    limit: int = typer.Option(10, help="How many recent orders to show"),
+    headed: bool = typer.Option(False, help="Run visibly (clears some bot challenges)"),
+) -> None:
     """Scrape recent orders from the saved session and print them."""
     try:
-        orders = scrape_order_history(get_settings(), limit=limit)
+        orders = scrape_order_history(get_settings(), limit=limit, headed=headed)
     except SessionExpired as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
@@ -42,12 +45,13 @@ def history(limit: int = typer.Option(10, help="How many recent orders to show")
 @app.command("debug-dump")
 def debug_dump(
     url: str = typer.Option(None, help="Override the orders-page URL to capture"),
+    headed: bool = typer.Option(False, help="Run visibly (clears some bot challenges)"),
 ) -> None:
     """Dev tool: capture the live orders page (HTML + screenshot) for selector tuning."""
     from app.freshdirect.debug import dump_orders_page
 
     try:
-        result = dump_orders_page(get_settings(), url=url)
+        result = dump_orders_page(get_settings(), url=url, headed=headed)
     except SessionExpired as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
