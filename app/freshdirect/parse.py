@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 
 from dateutil import parser as dateparser
 
-from app.freshdirect.base import Address, Order, OrderItem
+from app.freshdirect.base import Address, Order, OrderItem, Product
 
 
 class GraphQLSink:
@@ -64,6 +64,34 @@ def parse_address(addr: dict | None) -> Address | None:
         city=clean(addr.get("city")),
         state=clean(addr.get("state")),
         zip_code=clean(addr.get("zipCode")),
+    )
+
+
+def parse_product(node: dict) -> Product:
+    """One entry of ``productSearch.products`` → a :class:`Product`."""
+    sales_units = node.get("salesUnits") or []
+    sales_unit = None
+    for su in sales_units:
+        if str(su.get("selected")).lower() == "true":
+            sales_unit = su.get("salesUnit")
+            break
+    tags = node.get("marketingTags") or {}
+    url = node.get("productPageUrl")
+    return Product(
+        sku=node.get("skuCode") or node.get("productId") or "",
+        product_id=clean(node.get("productId")),
+        name=node.get("productName") or "(unknown)",
+        brand=clean(node.get("brandName")),
+        description=clean(node.get("productDescription")),
+        unit_size=clean(node.get("unitSize")),
+        price=price_value(node.get("price")),
+        formatted_price=clean(node.get("formattedCurrentPrice"))
+        or clean((node.get("price") or {}).get("formattedPrice")),
+        sales_unit=clean(sales_unit),
+        sold_out=str(tags.get("soldOut")).lower() == "true",
+        ebt_eligible=str(node.get("ebtEligible")).lower() == "true",
+        category_id=clean(node.get("categoryId")),
+        url=f"https://www.freshdirect.com{url}" if url and url.startswith("/") else clean(url),
     )
 
 

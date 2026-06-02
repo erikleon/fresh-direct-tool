@@ -14,9 +14,17 @@ from contextlib import contextmanager
 from typing import Iterator
 
 from app.config import Settings
-from app.freshdirect.base import Order, OrderItem, SessionExpired
-from app.freshdirect.parse import GraphQLSink, parse_cart_line, parse_order_summary
+from app.freshdirect.base import Order, OrderItem, Product, SessionExpired
+from app.freshdirect.parse import (
+    GraphQLSink,
+    parse_cart_line,
+    parse_order_summary,
+    parse_product,
+)
 from app.freshdirect.session import browser_context, ensure_logged_in
+
+# The header search box, matched by its placeholder (stable across the SPA).
+_SEARCH_PLACEHOLDER = "What's on your shopping list?"
 
 
 class _Session:
@@ -45,6 +53,36 @@ class _Session:
         detail = self._wait_for("order")
         lines = (detail or {}).get("cartLines") or []
         return [parse_cart_line(line) for line in lines if line]
+
+    def search_products(self, query: str, limit: int = 30) -> list[Product]:
+        """Search the catalog by driving the header search box like a user.
+
+        Cold-navigating to the search URL doesn't bind the query (the SPA reads
+        it from box state), so we type into the box and submit, then read the
+        ``productSearch`` response whose ``text`` matches our query.
+        """
+        self._sink.pop("productSearch")
+        box = self._page.get_by_placeholder(_SEARCH_PLACEHOLDER).first
+        box.click()
+        box.fill(query)
+        box.press("Enter")
+
+        result = self._wait_for_search(query)
+        products = (result or {}).get("products") or []
+        return [parse_product(p) for p in products[:limit] if p]
+
+    def _wait_for_search(self, query: str):
+        """Wait for a productSearch response that actually reflects this query."""
+        want = query.strip().lower()
+        for _ in range(max(1, self._settings.nav_timeout_ms // 500)):
+            ps = self._sink.ops.get("productSearch")
+            if isinstance(ps, dict):
+                text = (ps.get("text") or "").strip().lower()
+                # Accept once the bound query matches and results have settled.
+                if text == want and ps.get("products") is not None:
+                    return ps
+            self._page.wait_for_timeout(500)
+        return self._sink.ops.get("productSearch")
 
     # -- internals --------------------------------------------------------
     def _goto(self, url: str) -> None:
@@ -92,6 +130,11 @@ class FreshDirectClient:
                 for order in orders:
                     order.items = s.order_lines(order.order_id)
             return orders
+
+    def search_products(self, query: str, limit: int = 30) -> list[Product]:
+        """Convenience one-shot search (opens and closes a session)."""
+        with self.session() as s:
+            return s.search_products(query, limit=limit)
 
 
 def fetch_order_history(

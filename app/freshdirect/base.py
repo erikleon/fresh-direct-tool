@@ -31,6 +31,28 @@ class Address(BaseModel):
         return ", ".join(p for p in parts if p)
 
 
+class Product(BaseModel):
+    """A FreshDirect catalog product (from ``productSearch.products``)."""
+
+    sku: str
+    product_id: str | None = None
+    name: str
+    brand: str | None = None
+    description: str | None = None
+    unit_size: str | None = None  # e.g. "1 gallon", "1/2 gallon"
+    price: Decimal | None = None  # numeric value of the base price
+    formatted_price: str | None = None  # e.g. "$4.79/ea"
+    sales_unit: str | None = None  # EA / LB
+    sold_out: bool = False
+    ebt_eligible: bool = False
+    category_id: str | None = None
+    url: str | None = None
+
+    def one_line(self) -> str:
+        bits = [self.brand, self.name, self.unit_size, self.formatted_price]
+        return " · ".join(b for b in bits if b)
+
+
 class OrderItem(BaseModel):
     """A single line on a past order (from ``order.cartLines``)."""
 
@@ -74,4 +96,8 @@ class FreshDirectAdapter(Protocol):
         extra page load per order). Raises :class:`SessionExpired` if not
         logged in.
         """
+        ...
+
+    def search_products(self, query: str, limit: int = 30) -> list[Product]:
+        """Search the live catalog and return candidate products with prices."""
         ...

@@ -212,6 +212,41 @@ def due(
 
 
 @app.command()
+def search(
+    query: str = typer.Argument(..., help="Product search text"),
+    limit: int = typer.Option(12, help="Max results to show"),
+    headed: bool = typer.Option(False, help="Run visibly (clears some bot challenges)"),
+) -> None:
+    """Search the live FreshDirect catalog and print candidate products."""
+    from app.freshdirect.client import FreshDirectClient
+
+    try:
+        products = FreshDirectClient(get_settings(), headed=headed).search_products(
+            query, limit=limit
+        )
+    except SessionExpired as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    if not products:
+        console.print(f"[yellow]No results for '{query}'.[/yellow]")
+        return
+    table = Table(title=f"Results for '{query}'", title_justify="left")
+    table.add_column("SKU")
+    table.add_column("Brand")
+    table.add_column("Product")
+    table.add_column("Size")
+    table.add_column("Price", justify="right")
+    table.add_column("", justify="left")
+    for p in products:
+        table.add_row(
+            p.sku, p.brand or "", p.name, p.unit_size or "",
+            p.formatted_price or "", "[red]sold out[/red]" if p.sold_out else "",
+        )
+    console.print(table)
+
+
+@app.command()
 def profile(
     no_ai: bool = typer.Option(False, "--no-ai", help="Heuristics only, skip Claude"),
 ) -> None:
