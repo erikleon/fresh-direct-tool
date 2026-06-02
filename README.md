@@ -20,7 +20,7 @@ off a ready-to-checkout cart.
 |------|-------|-------|
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
 | 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
-| 2 | AI meal planning, SKU matching, budget swaps → draft plan | planned |
+| 2 | Dietary profile ✅ · meal planning, SKU matching, budget swaps → draft plan | in progress |
 | 3 | Review dashboard, approve → cart hand-off, email digest, scheduler | planned |
 | 4 | (future) Auto-checkout behind a flag | planned |
 
@@ -62,7 +62,15 @@ uv run fdplanner spend
 
 # Items predicted due for restock, most overdue first
 uv run fdplanner due
+
+# Infer a dietary profile from what you buy (saved to data/profile.json)
+uv run fdplanner profile
 ```
+
+`profile` works fully offline from the data (organic preference, plant-forward
+lean, proteins, household signals like a baby in the house). If
+`FDPLANNER_ANTHROPIC_API_KEY` is set it also refines the draft with Claude
+(`app/ai.py`, prompt-cached, structured tool output).
 
 Money is stored as integer cents (`app/money.py`) so sums stay exact. The
 replenishment forecast (`app/analytics.py`) estimates each item's buying cadence

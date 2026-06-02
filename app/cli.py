@@ -211,6 +211,45 @@ def due(
         console.print(f"\n[green]{len(preds)} active item(s) due within {horizon}d.[/green]")
 
 
+@app.command()
+def profile(
+    no_ai: bool = typer.Option(False, "--no-ai", help="Heuristics only, skip Claude"),
+) -> None:
+    """Infer (and save) a household dietary profile from purchase history.
+
+    Works fully offline from the data; if an Anthropic API key is configured it
+    also refines the draft with Claude.
+    """
+    from app import ai
+    from app.profile import infer_profile
+
+    profile, signals = infer_profile(get_settings(), use_ai=not no_ai)
+    if signals.total_items == 0:
+        console.print("[yellow]No items yet — run `fdplanner backfill` first.[/yellow]")
+        return
+    path = profile.save(get_settings())
+
+    console.print(f"[bold]Dietary profile[/bold]  [dim]({profile.source})[/dim]\n")
+    console.print(f"  Diet style       : {profile.diet_style}")
+    console.print(f"  Organic pref     : {profile.organic_preference}")
+    console.print(f"  Plant-forward    : {'yes' if profile.plant_forward else 'no'}")
+    console.print(f"  Favored proteins : {', '.join(profile.favored_proteins) or '—'}")
+    console.print(f"  Likely avoids    : {', '.join(profile.likely_avoids) or '—'}")
+    for note in profile.household_notes:
+        console.print(f"  Household        : {note}")
+    console.print(f"  Staple brands    : {', '.join(profile.staple_brands[:8])}")
+    if profile.notes:
+        console.print("\n  Notes:")
+        for n in profile.notes:
+            console.print(f"   • {n}")
+    if not no_ai and not ai.is_configured(get_settings()):
+        console.print(
+            "\n[dim]No Anthropic key set — used heuristics only. Set "
+            "FDPLANNER_ANTHROPIC_API_KEY to enrich with Claude.[/dim]"
+        )
+    console.print(f"\n[green]Saved to {path}[/green]")
+
+
 @app.command("import-paste")
 def import_paste(file: Path = typer.Argument(..., help="Text file of pasted orders")) -> None:
     """Parse a pasted order export (offline fallback) and print it."""
