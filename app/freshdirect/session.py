@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -25,11 +26,13 @@ def has_session(settings: Settings) -> bool:
     return settings.session_path.exists()
 
 
-def capture_session(settings: Settings) -> None:
+def capture_session(settings: Settings, timeout_s: int = 300) -> None:
     """Open a real browser window, let the user log in, then save the session.
 
-    Blocks on terminal input so the user can complete login (including 2FA /
-    captcha) at their own pace before we snapshot the authenticated state.
+    Completion is signalled by pressing Enter; if Enter never arrives (e.g. the
+    command runs without an interactive stdin) we auto-snapshot after
+    ``timeout_s`` so the call can never hang. Either way the user has the full
+    window of time to finish login, including 2FA / captcha.
     """
     settings.ensure_dirs()
     with sync_playwright() as p:
@@ -40,10 +43,10 @@ def capture_session(settings: Settings) -> None:
 
         print(
             "\nA browser window has opened. Log into FreshDirect "
-            "(complete any 2FA/captcha),\nthen return here and press Enter to "
-            "save the session."
+            "(complete any 2FA/captcha).\n"
+            f"Press Enter here when done, or it auto-saves after {timeout_s}s."
         )
-        input("Press Enter once you are logged in... ")
+        _wait_for_user(timeout_s)
 
         state_json = context.storage_state()  # dict
         blob = encrypt(json.dumps(state_json).encode(), settings)
@@ -52,6 +55,27 @@ def capture_session(settings: Settings) -> None:
         context.close()
         browser.close()
     print(f"Session saved (encrypted) to {settings.session_path}")
+
+
+def _wait_for_user(timeout_s: int) -> None:
+    """Block until the user presses Enter, or ``timeout_s`` elapses.
+
+    Reading stdin on a background thread keeps the wait bounded: a
+    non-interactive stdin raises ``EOFError`` and is ignored, so we fall through
+    to the timeout instead of saving a logged-out session prematurely.
+    """
+    done = threading.Event()
+
+    def reader() -> None:
+        try:
+            input("Press Enter once you are logged in... ")
+            done.set()
+        except EOFError:
+            pass  # no interactive stdin; rely on the timeout
+
+    threading.Thread(target=reader, daemon=True).start()
+    if not done.wait(timeout=timeout_s):
+        print(f"\nNo Enter received in {timeout_s}s — saving current session state.")
 
 
 @contextmanager

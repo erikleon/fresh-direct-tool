@@ -39,6 +39,31 @@ def history(limit: int = typer.Option(10, help="How many recent orders to show")
     _render(orders)
 
 
+@app.command("debug-dump")
+def debug_dump(
+    url: str = typer.Option(None, help="Override the orders-page URL to capture"),
+) -> None:
+    """Dev tool: capture the live orders page (HTML + screenshot) for selector tuning."""
+    from app.freshdirect.debug import dump_orders_page
+
+    try:
+        result = dump_orders_page(get_settings(), url=url)
+    except SessionExpired as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"Final URL : {result.final_url}")
+    console.print(f"Title     : {result.title}")
+    console.print(f"HTML      : {result.html_path}")
+    console.print(f"Screenshot: {result.screenshot_path}")
+    if result.looks_logged_out:
+        console.print("[yellow]Page looks logged-out — session may be expired.[/yellow]")
+    console.print("\nSelector hit counts:")
+    for name, count in result.selector_hits.items():
+        colour = "green" if count else "red"
+        console.print(f"  [{colour}]{count:>4}[/{colour}]  {name}")
+
+
 @app.command("import-paste")
 def import_paste(file: Path = typer.Argument(..., help="Text file of pasted orders")) -> None:
     """Parse a pasted order export (offline fallback) and print it."""
