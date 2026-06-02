@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# uv
+.uv/
+
+# Local data & secrets — NEVER commit these
+data/
+*.sqlite
+*.sqlite3
+*.db
+.env
+secrets/
+storage_state*.json
+storage_state*.enc
+
+# Playwright
+playwright-report/
+test-results/
+
+# OS
+.DS_Store
