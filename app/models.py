@@ -55,3 +55,18 @@ class OrderItemRow(SQLModel, table=True):
     substituted: bool = False
 
     order: Optional["OrderRow"] = Relationship(back_populates="items")
+
+
+class ProductAlias(SQLModel, table=True):
+    """A learned mapping: a generic need → the household's preferred SKU.
+
+    Written when a human corrects a match (Phase 3) so future matching for the
+    same generic item resolves directly instead of guessing.
+    """
+
+    __tablename__ = "product_aliases"
+
+    generic_key: str = Field(primary_key=True)  # normalized query text
+    sku: str
+    product_name: Optional[str] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

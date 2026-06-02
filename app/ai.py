@@ -115,6 +115,63 @@ def synthesize_profile(signals, draft, settings: Settings | None = None):
     return DietaryProfile.model_validate(merged)
 
 
+_RANK_SYSTEM = (
+    "You match a shopper's grocery need to the single best product from a "
+    "candidate list. Honor stated preferences (organic, brand, size, single "
+    "unit vs. multipack). Pick the closest *sensible* everyday choice, not the "
+    "biggest or cheapest. Return the product's exact sku, a 0-1 confidence, and "
+    "a short reason. If nothing fits, return an empty sku."
+)
+
+_RANK_TOOL = {
+    "name": "choose_product",
+    "description": "Choose the best-matching product.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "sku": {"type": "string", "description": "Exact sku of the pick, or empty."},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "reason": {"type": "string"},
+        },
+        "required": ["sku", "confidence"],
+    },
+}
+
+
+def rank_products(query: str, candidates, profile_hint: str | None = None,
+                  settings: Settings | None = None) -> dict[str, Any] | None:
+    """Ask Claude to pick the best candidate; ``None`` on missing key or error."""
+    settings = settings or get_settings()
+    if not is_configured(settings) or not candidates:
+        return None
+
+    listing = [
+        {
+            "sku": p.sku,
+            "brand": p.brand,
+            "name": p.name,
+            "size": p.unit_size,
+            "price": str(p.price) if p.price is not None else None,
+            "sold_out": p.sold_out,
+        }
+        for p in candidates
+    ]
+    payload = {"need": query, "preferences": profile_hint, "candidates": listing}
+
+    try:
+        resp = _client(settings).messages.create(
+            model=settings.planner_model,
+            max_tokens=512,
+            system=[{"type": "text", "text": _RANK_SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            tools=[_RANK_TOOL],
+            tool_choice={"type": "tool", "name": "choose_product"},
+            messages=[{"role": "user", "content": json.dumps(payload, indent=2)}],
+        )
+    except Exception:
+        return None
+    return _first_tool_input(resp)
+
+
 def _first_tool_input(resp) -> dict[str, Any] | None:
     for block in getattr(resp, "content", []):
         if getattr(block, "type", None) == "tool_use":

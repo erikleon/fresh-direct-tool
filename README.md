@@ -20,7 +20,7 @@ off a ready-to-checkout cart.
 |------|-------|-------|
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
 | 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
-| 2 | Dietary profile ✅ · meal planning, SKU matching, budget swaps → draft plan | in progress |
+| 2 | Dietary profile ✅ · catalog search ✅ · SKU matching ✅ · meal planning, budget swaps | in progress |
 | 3 | Review dashboard, approve → cart hand-off, email digest, scheduler | planned |
 | 4 | (future) Auto-checkout behind a flag | planned |
 
@@ -65,7 +65,20 @@ uv run fdplanner due
 
 # Infer a dietary profile from what you buy (saved to data/profile.json)
 uv run fdplanner profile
+
+# Search the live catalog
+uv run fdplanner search "organic whole milk"
+
+# Resolve a free-text need to a real SKU (alias → heuristic → optional Claude)
+uv run fdplanner match "organic whole milk"
+# Teach the right product so future matches resolve instantly
+uv run fdplanner match "organic whole milk" --teach DAI0059088
 ```
+
+Matching (`app/match.py`) scores search candidates on term overlap, brand,
+organic, and single-unit-vs-multipack, with **ambiguity-aware confidence** (a
+toss-up isn't reported as certain) so weak matches flag for review. Corrections
+are remembered as aliases; with an Anthropic key, Claude re-ranks the shortlist.
 
 `profile` works fully offline from the data (organic preference, plant-forward
 lean, proteins, household signals like a baby in the house). If

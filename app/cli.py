@@ -247,6 +247,49 @@ def search(
 
 
 @app.command()
+def match(
+    item: str = typer.Argument(..., help="Free-text item to resolve to a SKU"),
+    brand: str = typer.Option(None, help="Preferred brand"),
+    teach: str = typer.Option(None, help="Record this SKU as the alias for the item"),
+    headed: bool = typer.Option(False, help="Run visibly (clears some bot challenges)"),
+) -> None:
+    """Resolve a grocery need to a real FreshDirect product (alias → heuristic)."""
+    from app.freshdirect.client import FreshDirectClient
+    from app.match import resolve, set_alias
+
+    if teach:
+        set_alias(item, teach, settings=get_settings())
+        console.print(f"[green]Learned:[/green] '{item}' → SKU {teach}")
+        return
+
+    try:
+        candidates = FreshDirectClient(get_settings(), headed=headed).search_products(
+            item, limit=30
+        )
+    except SessionExpired as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    result = resolve(item, candidates, preferred_brand=brand, settings=get_settings())
+    if result.pick is None:
+        console.print(f"[yellow]No match for '{item}'.[/yellow]")
+        return
+
+    flag = "[red](needs review)[/red]" if result.needs_review else "[green]✓[/green]"
+    console.print(
+        f"{flag}  [bold]{result.pick.one_line()}[/bold]\n"
+        f"   SKU {result.pick.sku} · {result.method} · confidence {result.confidence:.0%}"
+    )
+    if result.alternatives:
+        console.print("\n   Alternatives:")
+        for alt in result.alternatives:
+            console.print(f"    · {alt.one_line()}  [dim]({alt.sku})[/dim]")
+    console.print(
+        f"\n[dim]Wrong pick? Teach it: fdplanner match \"{item}\" --teach <SKU>[/dim]"
+    )
+
+
+@app.command()
 def profile(
     no_ai: bool = typer.Option(False, "--no-ai", help="Heuristics only, skip Claude"),
 ) -> None:
