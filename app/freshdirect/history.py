@@ -1,10 +1,15 @@
-"""Order-history retrieval: live Playwright scrape + an offline paste fallback.
+"""Order-history retrieval via GraphQL interception, plus an offline fallback.
 
-The live scraper's CSS selectors are a *best-effort starting point*; FreshDirect's
-markup is confirmed and tuned during the Phase 0 spike (the selectors are grouped
-at the top of :func:`scrape_order_history` for exactly that reason). The paste
-fallback keeps the product usable if automation is ever blocked, and — unlike the
-scraper — it is fully unit-tested because it touches no network.
+FreshDirect's account pages are a React SPA backed by a GraphQL API
+(``POST /graphql``). Rather than scrape hashed-classname DOM or replay query
+strings (which can change between builds / be persisted queries), we drive the
+real app and read its GraphQL **responses** off the wire by operation name:
+
+- ``ordersHistory`` (on ``/account/history``) → the list of past orders.
+- ``order`` (on ``/account/order_details/{id}``) → that order's line items.
+
+The paste fallback keeps the product usable if automation is ever blocked, and —
+unlike the live path — it is fully unit-tested because it touches no network.
 """
 
 from __future__ import annotations
@@ -16,79 +21,139 @@ from decimal import Decimal, InvalidOperation
 from dateutil import parser as dateparser
 
 from app.config import Settings
-from app.freshdirect.base import Order, OrderItem
+from app.freshdirect.base import Address, Order, OrderItem, SessionExpired
 from app.freshdirect.session import browser_context, ensure_logged_in
 
 # --------------------------------------------------------------------------- #
-# Live scrape (Playwright)
+# Live retrieval (GraphQL interception)
 # --------------------------------------------------------------------------- #
 
-# Selectors are intentionally centralized; confirm against the live DOM in Phase 0.
-_SEL = {
-    "order_card": "[data-testid='order-card'], .order-history-item, .past-order",
-    "order_id": "[data-testid='order-number'], .order-number",
-    "order_date": "[data-testid='order-date'], .order-date, time",
-    "order_total": "[data-testid='order-total'], .order-total",
-    "item_row": "[data-testid='order-line'], .order-line, .line-item",
-    "item_name": "[data-testid='product-name'], .product-name, .item-name",
-    "item_qty": "[data-testid='quantity'], .quantity, .qty",
-    "item_price": "[data-testid='line-price'], .line-price, .item-price",
-}
 
+class _GraphQLSink:
+    """Collects the latest payload for each GraphQL operation seen on the page.
 
-def scrape_order_history(
-    settings: Settings, limit: int = 10, headed: bool = False
-) -> list[Order]:
-    """Scrape up to ``limit`` recent orders from the authenticated account.
-
-    ``headed=True`` runs visibly on the warm profile, which can clear an Akamai
-    challenge that a headless reuse occasionally trips. Raises
-    :class:`~app.freshdirect.base.SessionExpired` via ``ensure_logged_in`` when
-    the saved session is no longer valid.
+    A single ``/graphql`` response may be one object or a batched array of them;
+    both are flattened here, keyed by the operation name under ``data``.
     """
-    orders: list[Order] = []
-    with browser_context(settings, headless=not headed) as (_context, page):
-        page.goto(settings.fd_account_url, timeout=settings.nav_timeout_ms)
-        ensure_logged_in(page, settings)
-        page.wait_for_load_state("networkidle")
 
-        cards = page.locator(_SEL["order_card"])
-        count = min(cards.count(), limit)
-        for i in range(count):
-            card = cards.nth(i)
-            orders.append(_parse_order_card(card))
+    def __init__(self) -> None:
+        self.ops: dict[str, object] = {}
+
+    def handle(self, response) -> None:
+        if "/graphql" not in response.url:
+            return
+        try:
+            body = response.json()
+        except Exception:
+            return
+        for obj in body if isinstance(body, list) else [body]:
+            data = obj.get("data") if isinstance(obj, dict) else None
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if value is not None:
+                        self.ops[key] = value
+
+
+def fetch_order_history(
+    settings: Settings,
+    limit: int = 10,
+    with_details: bool = False,
+    headed: bool = False,
+) -> list[Order]:
+    """Return up to ``limit`` recent orders, newest first.
+
+    Boots the SPA at the homepage (direct deep-links to the React routes render
+    an error page), then navigates to the order-history view and reads the
+    ``ordersHistory`` GraphQL response. With ``with_details`` each order is
+    enriched from its detail page's ``order`` response. ``headed=True`` runs
+    visibly, which can clear a bot challenge a headless reuse occasionally trips.
+    """
+    with browser_context(settings, headless=not headed) as (_context, page):
+        sink = _GraphQLSink()
+        page.on("response", sink.handle)
+
+        # Boot the SPA, then client-route to order history.
+        page.goto(settings.fd_base_url, wait_until="domcontentloaded",
+                  timeout=settings.nav_timeout_ms)
+        page.wait_for_timeout(2000)
+        page.goto(settings.fd_account_url, wait_until="domcontentloaded",
+                  timeout=settings.nav_timeout_ms)
+        history = _wait_for_op(page, sink, "ordersHistory", settings)
+
+        if history is None:
+            ensure_logged_in(page, settings)  # raises if the session expired
+            raise RuntimeError(
+                "Reached the order-history page but never saw the ordersHistory "
+                "GraphQL response — the API may have changed."
+            )
+
+        infos = (history or {}).get("ordersInfo") or []
+        orders = [_parse_order_summary(info) for info in infos[:limit]]
+
+        if with_details:
+            for order in orders:
+                order.items = _fetch_order_lines(page, sink, settings, order.order_id)
+
     return orders
 
 
-def _parse_order_card(card) -> Order:
-    """Pull one order out of a card locator, tolerating missing fields."""
+def _fetch_order_lines(page, sink: _GraphQLSink, settings: Settings, order_id: str) -> list[OrderItem]:
+    sink.ops.pop("order", None)
+    page.goto(
+        f"{settings.fd_base_url}/account/order_details/{order_id}",
+        wait_until="domcontentloaded",
+        timeout=settings.nav_timeout_ms,
+    )
+    detail = _wait_for_op(page, sink, "order", settings)
+    lines = (detail or {}).get("cartLines") or []
+    return [_parse_cart_line(line) for line in lines if line]
 
-    def text(sel: str) -> str | None:
-        loc = card.locator(sel).first
-        return loc.inner_text().strip() if loc.count() else None
 
-    order_id = _clean_id(text(_SEL["order_id"])) or "unknown"
-    ordered_on = _parse_date(text(_SEL["order_date"])) or date.today()
-    total = _money(text(_SEL["order_total"]))
+def _wait_for_op(page, sink: _GraphQLSink, op: str, settings: Settings):
+    """Poll until the named GraphQL operation has been captured, or time out."""
+    deadline_ticks = max(1, settings.nav_timeout_ms // 500)
+    for _ in range(deadline_ticks):
+        if op in sink.ops:
+            return sink.ops[op]
+        page.wait_for_timeout(500)
+    return sink.ops.get(op)
 
-    items: list[OrderItem] = []
-    rows = card.locator(_SEL["item_row"])
-    for j in range(rows.count()):
-        row = rows.nth(j)
-        name = row.locator(_SEL["item_name"]).first
-        if not name.count():
-            continue
-        qty_loc = row.locator(_SEL["item_qty"]).first
-        price_loc = row.locator(_SEL["item_price"]).first
-        items.append(
-            OrderItem(
-                name=name.inner_text().strip(),
-                quantity=_qty(qty_loc.inner_text()) if qty_loc.count() else 1,
-                total_price=_money(price_loc.inner_text()) if price_loc.count() else None,
-            )
-        )
 
-    return Order(order_id=order_id, ordered_on=ordered_on, total=total, items=items)
+def _parse_order_summary(info: dict) -> Order:
+    return Order(
+        order_id=str(info.get("orderId")),
+        ordered_on=_parse_date(info.get("requestedDate")) or date.today(),
+        delivery_start=_parse_dt(info.get("deliveryStart")),
+        delivery_end=_parse_dt(info.get("deliveryEnd")),
+        status=info.get("orderStatus"),
+        address=_parse_address(info.get("address")),
+        total=_to_decimal(info.get("orderTotal")),
+    )
+
+
+def _parse_address(addr: dict | None) -> Address | None:
+    if not addr:
+        return None
+    return Address(
+        address1=_clean(addr.get("address1")),
+        apartment=_clean(addr.get("apartment")),
+        city=_clean(addr.get("city")),
+        state=_clean(addr.get("state")),
+        zip_code=_clean(addr.get("zipCode")),
+    )
+
+
+def _parse_cart_line(line: dict) -> OrderItem:
+    product = line.get("product") or {}
+    return OrderItem(
+        name=product.get("productName") or "(unknown)",
+        product_id=product.get("productId"),
+        brand=_clean(product.get("brandName")),
+        quantity=_to_float(line.get("quantity"), default=1.0),
+        total_price=_price(line.get("price")),
+        category=_clean(line.get("departmentLabel")),
+        substituted=str(line.get("substituted")).lower() == "true",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -160,7 +225,6 @@ def _parse_item_line(line: str) -> OrderItem | None:
         name_part = line[qty_match.end():].strip()
 
     prices = _MONEY.findall(name_part)
-    # Strip trailing money tokens from the name.
     name = _MONEY.sub("", name_part).strip().rstrip("·-—").strip()
     if not name:
         return None
@@ -182,38 +246,46 @@ def _parse_item_line(line: str) -> OrderItem | None:
 # --------------------------------------------------------------------------- #
 
 
-def _clean_id(text: str | None) -> str | None:
-    if not text:
+def _clean(value) -> str | None:
+    if value is None:
         return None
-    m = _ID.search(text)
-    return m.group(1) if m else text.strip()
+    text = str(value).strip()
+    return text or None if text.lower() != "none" else None
 
 
-def _parse_date(text: str | None) -> date | None:
-    if not text:
+def _parse_date(text) -> date | None:
+    dt = _parse_dt(text)
+    return dt.date() if dt else None
+
+
+def _parse_dt(text):
+    if not text or str(text).lower() == "none":
         return None
     try:
-        return dateparser.parse(text, fuzzy=True).date()
+        # FreshDirect dates look like "Thu May 28 19:00:00 EDT 2026"; ignoretz
+        # avoids ambiguity around named zones like EDT.
+        return dateparser.parse(str(text), fuzzy=True, ignoretz=True)
     except (ValueError, OverflowError):
         return None
 
 
-def _money(text: str | None) -> Decimal | None:
-    if not text:
+def _price(price: dict | None) -> Decimal | None:
+    if isinstance(price, dict):
+        return _to_decimal(price.get("value"))
+    return None
+
+
+def _to_decimal(token) -> Decimal | None:
+    if token is None:
         return None
-    m = _MONEY.search(text)
-    return _to_decimal(m.group(1)) if m else None
-
-
-def _qty(text: str | None) -> float:
-    if not text:
-        return 1.0
-    m = re.search(r"\d+(?:\.\d+)?", text)
-    return float(m.group(0)) if m else 1.0
-
-
-def _to_decimal(token: str) -> Decimal | None:
     try:
-        return Decimal(token.replace(",", ""))
+        return Decimal(str(token).replace(",", "").replace("$", ""))
     except (InvalidOperation, AttributeError):
         return None
+
+
+def _to_float(token, default: float = 0.0) -> float:
+    try:
+        return float(str(token))
+    except (ValueError, TypeError):
+        return default

@@ -31,8 +31,8 @@ class Settings(BaseSettings):
 
     # --- FreshDirect -----------------------------------------------------
     fd_base_url: str = "https://www.freshdirect.com"
-    fd_account_url: str = "https://www.freshdirect.com/account/orders.jsp"
-    """Order-history landing page. Verified/adjusted during the Phase 0 spike."""
+    fd_account_url: str = "https://www.freshdirect.com/account/history"
+    """Order-history page (a client-routed React view; boot the SPA first)."""
 
     # --- Browser ---------------------------------------------------------
     # We drive real Google Chrome (channel below) from a dedicated, persistent
