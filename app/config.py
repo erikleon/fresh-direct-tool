@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     """Session *capture* always runs headed regardless; scrapes run per this flag."""
     nav_timeout_ms: int = 45_000
 
+    # --- Planning --------------------------------------------------------
+    weekly_budget: float | None = None
+    """Weekly spend cap in dollars; None means no cap. Overridable per run."""
+
     # --- AI (used from Phase 2) -----------------------------------------
     anthropic_api_key: str | None = None
     planner_model: str = "claude-opus-4-8"

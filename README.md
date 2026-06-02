@@ -20,7 +20,7 @@ off a ready-to-checkout cart.
 |------|-------|-------|
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
 | 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
-| 2 | Dietary profile ✅ · catalog search ✅ · SKU matching ✅ · meal planning, budget swaps | in progress |
+| 2 | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later) | ✅ done (CLI) |
 | 3 | Review dashboard, approve → cart hand-off, email digest, scheduler | planned |
 | 4 | (future) Auto-checkout behind a flag | planned |
 
@@ -73,7 +73,16 @@ uv run fdplanner search "organic whole milk"
 uv run fdplanner match "organic whole milk"
 # Teach the right product so future matches resolve instantly
 uv run fdplanner match "organic whole milk" --teach DAI0059088
+
+# Build a restock draft cart from items due, priced live, under a budget cap
+uv run fdplanner plan --horizon 7 --budget 200
 ```
+
+The draft plan (`app/planner.py`) takes the items due, prices each against the
+live catalog — preferring the *exact* product you've bought before (its
+historical `product_id`) — then reconciles against the weekly cap with
+cheaper-swap suggestions (`app/budget.py`, pure + tested). Low-confidence matches
+are flagged for review. Meal planning will layer on top once an API key is set.
 
 Matching (`app/match.py`) scores search candidates on term overlap, brand,
 organic, and single-unit-vs-multipack, with **ambiguity-aware confidence** (a

@@ -328,6 +328,66 @@ def profile(
     console.print(f"\n[green]Saved to {path}[/green]")
 
 
+@app.command()
+def plan(
+    horizon: int = typer.Option(7, help="Plan for items due within this many days"),
+    max_items: int = typer.Option(25, help="Cap how many items to price"),
+    budget: float = typer.Option(None, help="Weekly $ cap (overrides config)"),
+    headed: bool = typer.Option(False, help="Run visibly (clears some bot challenges)"),
+) -> None:
+    """Build a restock draft cart from items due, priced live, under budget."""
+    from app.money import dollars
+    from app.planner import build_plan
+
+    try:
+        draft = build_plan(
+            get_settings(), horizon_days=horizon, max_items=max_items,
+            budget=budget, headed=headed, progress=console.print,
+        )
+    except SessionExpired as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    if not draft.lines:
+        console.print("\n[yellow]Nothing due — no draft plan. Try a larger --horizon.[/yellow]")
+        return
+
+    table = Table(title=f"\nDraft cart — week of {draft.week_of}", title_justify="left")
+    table.add_column("Item")
+    table.add_column("Chosen product")
+    table.add_column("Price", justify="right")
+    table.add_column("Why")
+    table.add_column("", justify="left")
+    for ln in draft.lines:
+        chosen = ln.chosen
+        swapped = " [yellow](swapped ↓)[/yellow]" if ln.swap else ""
+        flag = "[red]review[/red]" if ln.needs_review else ""
+        table.add_row(
+            ln.need,
+            (chosen.one_line()) + swapped,
+            dollars(ln.line_cents),
+            ln.reason,
+            flag,
+        )
+    console.print(table)
+
+    sub = dollars(draft.subtotal_cents)
+    if draft.budget_cap_cents is None:
+        console.print(f"\n[bold]Subtotal: {sub}[/bold]  (no budget cap set)")
+    elif draft.over_by_cents > 0:
+        console.print(
+            f"\n[bold]Subtotal: {sub}[/bold] · cap {dollars(draft.budget_cap_cents)} · "
+            f"[red]over by {dollars(draft.over_by_cents)}[/red] even after swaps"
+        )
+    else:
+        console.print(
+            f"\n[bold]Subtotal: {sub}[/bold] · cap {dollars(draft.budget_cap_cents)} · "
+            f"[green]under budget[/green]"
+        )
+    if draft.review_lines:
+        console.print(f"[dim]{len(draft.review_lines)} line(s) flagged for review.[/dim]")
+
+
 @app.command("import-paste")
 def import_paste(file: Path = typer.Argument(..., help="Text file of pasted orders")) -> None:
     """Parse a pasted order export (offline fallback) and print it."""
