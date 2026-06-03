@@ -21,7 +21,7 @@ off a ready-to-checkout cart.
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
 | 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
 | 2 | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later) | ✅ done (CLI) |
-| 3 | Review dashboard, approve → cart hand-off, email digest, scheduler | planned |
+| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off, delivery, scheduler | in progress |
 | 4 | (future) Auto-checkout behind a flag | planned |
 
 ## Setup
@@ -76,7 +76,18 @@ uv run fdplanner match "organic whole milk" --teach DAI0059088
 
 # Build a restock draft cart from items due, priced live, under a budget cap
 uv run fdplanner plan --horizon 7 --budget 200
+
+# Or use the web dashboard: review, edit, swap, and approve in the browser
+uv run fdplanner serve            # → http://127.0.0.1:8000
 ```
+
+The dashboard (`app/web/`, FastAPI + Jinja, server-rendered so it works without
+client JS) lets the household manager **review** the draft cart, **edit**
+quantities, **remove** items, **swap** to a cheaper/different product (which is
+learned as an alias), watch the **budget bar**, and **approve**. Generation runs
+in the background (`app/web/jobs.py`) with a live progress refresh. Cart hand-off
+to FreshDirect checkout, delivery address/window/tip, and the weekly scheduler are
+the next build steps.
 
 The draft plan (`app/planner.py`) takes the items due, prices each against the
 live catalog — preferring the *exact* product you've bought before (its

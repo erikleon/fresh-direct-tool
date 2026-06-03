@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Weekly Planner{% endblock %}</title>
+  {% block head %}{% endblock %}
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <span class="brand"><span class="brand-fresh">fresh</span><span class="brand-direct">direct</span> · weekly planner</span>
+    </div>
+  </header>
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="wrap foot">Local-first · single household · review before you buy</footer>
+</body>
+</html>

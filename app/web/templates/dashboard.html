@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block head %}
+  {% if job.status == "running" %}<meta http-equiv="refresh" content="3">{% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if job.status == "running" %}
+  <div class="banner running">
+    <span class="spinner"></span>
+    <div>
+      <strong>Building your draft cart…</strong>
+      <div class="muted small">{{ job.message }}</div>
+    </div>
+  </div>
+{% elif job.status == "error" %}
+  <div class="banner error"><strong>Generation failed.</strong> <span class="muted">{{ job.message }}</span></div>
+{% endif %}
+
+<section class="card generate">
+  <form method="post" action="/generate" class="row gap">
+    <div>
+      <label>Plan items due within</label>
+      <div class="inline"><input type="number" name="horizon" value="7" min="1" max="60"> days</div>
+    </div>
+    <div>
+      <label>Weekly budget ($)</label>
+      <input type="number" name="budget" step="1" placeholder="none"
+             value="{{ settings.weekly_budget or '' }}">
+    </div>
+    <div>
+      <label>Max items</label>
+      <input type="number" name="max_items" value="25" min="1" max="60">
+    </div>
+    <div class="grow"></div>
+    <button class="primary" {% if job.status == "running" %}disabled{% endif %}>
+      Plan my week
+    </button>
+  </form>
+</section>
+
+{% if not plan %}
+  <div class="empty">
+    <p>No draft plan yet.</p>
+    <p class="muted">Click <strong>Plan my week</strong> to build a restock cart from what you're due for.</p>
+  </div>
+{% else %}
+  {% set sub = included_subtotal(plan) %}
+  <section class="card">
+    <div class="plan-head">
+      <h2>Draft cart · week of {{ plan.week_of }}</h2>
+      <span class="badge {{ plan.status }}">{{ plan.status }}</span>
+    </div>
+
+    {% if plan.budget_cap_cents %}
+      {% set pct = (sub / plan.budget_cap_cents * 100) if plan.budget_cap_cents else 0 %}
+      <div class="budget">
+        <div class="budget-bar">
+          <div class="fill {{ 'over' if sub > plan.budget_cap_cents else 'ok' }}"
+               style="width: {{ [pct, 100] | min }}%"></div>
+        </div>
+        <div class="budget-label">
+          <strong>{{ sub | dollars }}</strong> of {{ plan.budget_cap_cents | dollars }}
+          {% if sub > plan.budget_cap_cents %}
+            <span class="over-txt">· over by {{ (sub - plan.budget_cap_cents) | dollars }}</span>
+          {% else %}
+            <span class="ok-txt">· under budget</span>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <div class="budget-label"><strong>{{ sub | dollars }}</strong> · no budget cap set</div>
+    {% endif %}
+
+    <table class="cart">
+      <thead>
+        <tr><th></th><th>Item</th><th>Chosen product</th><th class="r">Price</th><th>Qty</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+      {% for line in plan.lines %}
+        <tr class="{{ 'dropped' if not line.included else '' }} {{ 'review' if line.needs_review else '' }}">
+          <td>
+            <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/toggle">
+              <input type="hidden" name="included" value="{{ 'off' if line.included else 'on' }}">
+              <button class="link" title="{{ 'Remove' if line.included else 'Add back' }}">
+                {{ '✓' if line.included else '＋' }}
+              </button>
+            </form>
+          </td>
+          <td>
+            {{ line.need }}
+            {% if line.needs_review %}<span class="tag warn">review</span>{% endif %}
+            {% if line.swapped %}<span class="tag swap">swapped ↓</span>{% endif %}
+          </td>
+          <td>
+            <div class="prod">
+              {% if line.selected_brand %}<span class="brand">{{ line.selected_brand }}</span>{% endif %}
+              {{ line.selected_name }}
+              {% if line.selected_size %}<span class="muted small">· {{ line.selected_size }}</span>{% endif %}
+            </div>
+            {% if line.alternatives | length > 1 and plan.status == 'draft' %}
+              <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/select" class="swap-form">
+                <select name="sku">
+                  {% for alt in line.alternatives %}
+                    <option value="{{ alt.sku }}" {{ 'selected' if alt.sku == line.selected_sku }}>
+                      {{ alt.brand or '' }} {{ alt.name }} — {{ alt.price_cents | dollars }}{{ ' (sold out)' if alt.sold_out }}
+                    </option>
+                  {% endfor %}
+                </select>
+                <button class="link small">swap</button>
+              </form>
+            {% endif %}
+          </td>
+          <td class="r">{{ line.selected_price_cents | dollars }}</td>
+          <td>
+            <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/qty" class="qty-form">
+              <input type="number" name="quantity" value="{{ '%g' % line.quantity }}" step="1" min="0">
+              <button class="link small">set</button>
+            </form>
+          </td>
+          <td class="muted small">{{ line.reason }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="actions">
+      {% if plan.status == 'draft' %}
+        <form method="post" action="/plan/{{ plan.id }}/approve">
+          <button class="primary big">Approve cart →</button>
+        </form>
+        <span class="muted small">
+          {{ plan.review_count if plan.review_count is defined else (plan.lines | selectattr('needs_review') | list | length) }}
+          line(s) flagged for review
+        </span>
+      {% else %}
+        <div class="banner ok"><strong>Approved.</strong>
+          <span class="muted">Hand-off to FreshDirect checkout is the next build step.</span>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+{% endif %}
+
+{% endblock %}

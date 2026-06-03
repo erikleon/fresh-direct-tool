@@ -388,6 +388,19 @@ def plan(
         console.print(f"[dim]{len(draft.review_lines)} line(s) flagged for review.[/dim]")
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind host"),
+    port: int = typer.Option(8000, help="Bind port"),
+    reload: bool = typer.Option(False, help="Auto-reload on code changes"),
+) -> None:
+    """Run the review-and-approve web dashboard."""
+    import uvicorn
+
+    console.print(f"Dashboard at [bold]http://{host}:{port}[/bold]")
+    uvicorn.run("app.web.server:app", host=host, port=port, reload=reload)
+
+
 @app.command("import-paste")
 def import_paste(file: Path = typer.Argument(..., help="Text file of pasted orders")) -> None:
     """Parse a pasted order export (offline fallback) and print it."""
