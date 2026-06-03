@@ -32,14 +32,15 @@ def _plan_url(plan: PlanRow, settings: Settings) -> str:
 
 
 def _delivery_line(plan: PlanRow) -> str | None:
-    if not plan.address1:
-        return None
-    bits = [plan.address_one_line()]
-    if plan.delivery_start:
-        bits.append(plan.delivery_start.strftime("%a %b %d"))
+    bits = []
+    when = plan.delivery_when()
+    if when:
+        bits.append(when)
+    if plan.address1:
+        bits.append(plan.address_one_line())
     if plan.tip_cents:
         bits.append(f"tip {dollars(plan.tip_cents)}")
-    return " · ".join(bits)
+    return " · ".join(bits) or None
 
 
 def render_digest(plan: PlanRow, settings: Settings | None = None) -> tuple[str, str, str]:
@@ -114,7 +115,7 @@ def render_digest(plan: PlanRow, settings: Settings | None = None) -> tuple[str,
         if included
         else '<p style="color:#666">Nothing is due for restock this week.</p>'
     )
-    deliver_html = f'<p style="color:#444;margin:4px 0">🚚 {delivery}</p>' if delivery else ""
+    deliver_html = f'<p style="color:#444;margin:4px 0">🗓 {delivery}</p>' if delivery else ""
     review_html = (
         f'<p style="color:#7c5b00;margin:4px 0">⚠️ {len(review)} line(s) flagged for review.</p>'
         if review

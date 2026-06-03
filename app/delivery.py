@@ -10,8 +10,25 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import date, datetime, time, timedelta
 
 from app.config import Settings, get_settings
+
+_DOW = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def next_preferred_delivery(
+    after: date | None = None, day: str = "sun", hour: int = 19
+) -> datetime:
+    """The next ``day`` on or after ``after`` (default today), at ``hour``:00.
+
+    Used to suggest an "ideal" delivery slot on a fresh draft, e.g. Sunday
+    evening after 7pm. The household manager confirms the actual slot at checkout.
+    """
+    after = after or date.today()
+    target = _DOW[day.lower()[:3]]
+    delta = (target - after.weekday()) % 7  # 0 if `after` is already that weekday
+    return datetime.combine(after + timedelta(days=delta), time(hour, 0))
 
 
 @dataclass

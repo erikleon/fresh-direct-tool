@@ -75,15 +75,16 @@
     <div class="delivery">
       <div class="delivery-head">
         <strong>Delivery</strong>
-        {% if plan.address1 %}
-          <span class="muted small">{{ plan.address_one_line() }}
-            {% if plan.delivery_start %}· {{ plan.delivery_start.strftime('%a %b %d') }}{% endif %}
-            {% if plan.tip_cents %}· tip {{ plan.tip_cents | dollars }}{% endif %}
-          </span>
+        {% set when = plan.delivery_when() %}
+        {% if when or plan.address1 %}
+          <span class="muted small">{{ when }}{% if plan.address1 %}{{ ' · ' if when }}{{ plan.address_one_line() }}{% endif %}{% if plan.tip_cents %} · tip {{ plan.tip_cents | dollars }}{% endif %}</span>
         {% else %}
           <span class="muted small">not set</span>
         {% endif %}
       </div>
+      {% if plan.delivery_when() and plan.status != 'handed_off' %}
+        <div class="muted small">Ideal slot: <strong>{{ plan.delivery_when() }}</strong> — FreshDirect timeslots are reserved at checkout, so pick the matching evening slot there.</div>
+      {% endif %}
       {% if plan.status != 'handed_off' %}
         {% if addresses %}
           <form method="post" action="/plan/{{ plan.id }}/delivery" class="row gap delivery-form">
@@ -205,7 +206,7 @@
             {% if plan.address1 %}
               <div class="muted small">At checkout, set delivery to
                 <strong>{{ plan.address_one_line() }}</strong>
-                {% if plan.delivery_start %}· {{ plan.delivery_start.strftime('%a %b %d') }}{% endif %}
+                {% if plan.delivery_when() %}· {{ plan.delivery_when() }}{% endif %}
                 {% if plan.tip_cents %}· tip {{ plan.tip_cents | dollars }}{% endif %}.
               </div>
             {% endif %}

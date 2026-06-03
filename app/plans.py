@@ -31,10 +31,21 @@ def _product_dict(p: Product) -> dict:
 
 def save_draft(draft: DraftPlan, settings: Settings | None = None) -> int:
     """Persist a freshly built DraftPlan as a new 'draft' plan; return its id."""
+    from app.delivery import next_preferred_delivery
+
     settings = settings or get_settings()
     init_db(settings)
     with session_scope(settings) as db:
-        plan = PlanRow(week_of=draft.week_of, budget_cap_cents=draft.budget_cap_cents)
+        plan = PlanRow(
+            week_of=draft.week_of,
+            budget_cap_cents=draft.budget_cap_cents,
+            # Suggest the household's ideal slot (e.g. Sunday after 7pm); the
+            # manager can change the date, and confirms the real slot at checkout.
+            delivery_start=next_preferred_delivery(
+                day=settings.preferred_delivery_day,
+                hour=settings.preferred_delivery_after_hour,
+            ),
+        )
         for ln in draft.lines:
             chosen = ln.chosen
             plan.lines.append(
@@ -149,7 +160,8 @@ def set_delivery(
     from datetime import datetime, time
     from decimal import Decimal
 
-    with session_scope(settings or get_settings()) as db:
+    settings = settings or get_settings()
+    with session_scope(settings) as db:
         plan = db.get(PlanRow, plan_id)
         if plan is None:
             return
@@ -160,7 +172,10 @@ def set_delivery(
             plan.state = address.state
             plan.zip_code = address.zip_code
         if delivery_date is not None:
-            plan.delivery_start = datetime.combine(delivery_date, time(0, 0))
+            # Keep the ideal time-of-day (e.g. after 7pm) when the date changes.
+            plan.delivery_start = datetime.combine(
+                delivery_date, time(settings.preferred_delivery_after_hour, 0)
+            )
         if tip_dollars is not None:
             plan.tip_cents = to_cents(Decimal(str(tip_dollars)))
         db.add(plan)

@@ -38,6 +38,35 @@ def test_handles_empty_uda():
     assert _parse_addresses({}) == []
 
 
+def test_next_preferred_delivery_is_target_evening():
+    from app.delivery import next_preferred_delivery
+
+    # From a Friday (2026-06-05), the next Sunday after 7pm is 2026-06-07 19:00.
+    dt = next_preferred_delivery(after=date(2026, 6, 5), day="sun", hour=19)
+    assert dt.weekday() == 6  # Sunday
+    assert dt.date() >= date(2026, 6, 5) and (dt.date() - date(2026, 6, 5)).days < 7
+    assert dt.hour == 19 and dt.minute == 0
+    # Same weekday as `after` resolves to that day, not a week later.
+    same = next_preferred_delivery(after=date(2026, 6, 7), day="sun", hour=19)
+    assert same.date() == date(2026, 6, 7)
+
+
+def test_save_draft_suggests_sunday_evening(settings):
+    from app.budget import DraftPlan, PlanLine
+    from app.freshdirect.base import Product
+    from app.plans import get_plan, save_draft
+
+    pid = save_draft(
+        DraftPlan(week_of=date(2026, 6, 1),
+                  lines=[PlanLine(need="milk", product=Product(sku="X", name="Milk"))]),
+        settings,
+    )
+    plan = get_plan(pid, settings)
+    assert plan.delivery_start.weekday() == 6  # Sunday (config default)
+    assert plan.delivery_start.hour == 19      # after 7pm
+    assert plan.delivery_when().endswith("after 7:00 PM")
+
+
 def test_set_delivery_persists(settings):
     from app.budget import DraftPlan, PlanLine
     from app.delivery import SavedAddress
@@ -57,4 +86,5 @@ def test_set_delivery_persists(settings):
     assert plan.city == "Sample City"
     assert plan.tip_cents == 800
     assert plan.delivery_start.date() == date(2026, 6, 6)
+    assert plan.delivery_start.hour == 19  # ideal time kept when the date changes
     assert "Sample City" in plan.address_one_line()

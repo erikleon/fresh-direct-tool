@@ -12,6 +12,13 @@ from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
 
+def _clock(dt: datetime) -> str:
+    """Format a datetime's time as a 12-hour clock, e.g. '7:00 PM'."""
+    hour = dt.hour % 12 or 12
+    ampm = "AM" if dt.hour < 12 else "PM"
+    return f"{hour}:{dt.minute:02d} {ampm}"
+
+
 class OrderRow(SQLModel, table=True):
     __tablename__ = "orders"
 
@@ -90,6 +97,16 @@ class PlanRow(SQLModel, table=True):
     def address_one_line(self) -> str:
         parts = [self.address1, self.apartment, self.city, self.state, self.zip_code]
         return ", ".join(p for p in parts if p)
+
+    def delivery_when(self) -> str:
+        """Human label for the preferred delivery slot, e.g. 'Sun Jun 07, after 7:00 PM'."""
+        if not self.delivery_start:
+            return ""
+        day = self.delivery_start.strftime("%a %b %d")
+        start = _clock(self.delivery_start)
+        if self.delivery_end:
+            return f"{day}, {start}–{_clock(self.delivery_end)}"
+        return f"{day}, after {start}"
 
 
 class PlanLineRow(SQLModel, table=True):

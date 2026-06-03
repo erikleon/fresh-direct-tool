@@ -69,10 +69,19 @@ class Settings(BaseSettings):
 
     # --- Weekly scheduler (Phase 3) -------------------------------------
     schedule_day: str = "sat"
-    """Day-of-week cron field for the weekly draft (mon…sun)."""
+    """Day-of-week cron field for the weekly draft run (mon…sun)."""
     schedule_hour: int = 7
     schedule_horizon_days: int = 7
     schedule_max_items: int = 25
+
+    # --- Preferred delivery window --------------------------------------
+    # The "ideal" delivery the planner suggests on each draft. FreshDirect
+    # timeslots are reserved live at checkout, so this is a recorded preference
+    # (prefilled + shown in the digest/dashboard), not a held slot.
+    preferred_delivery_day: str = "sun"
+    """Ideal delivery day-of-week (mon…sun)."""
+    preferred_delivery_after_hour: int = 19
+    """Earliest ideal delivery hour, 0–23 (19 = after 7pm)."""
 
     @property
     def smtp_configured(self) -> bool:
