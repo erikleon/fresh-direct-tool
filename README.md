@@ -159,6 +159,13 @@ from how often it appears across orders and flags what's due.
 > order list) and `order` (each order's line items) — and parse that JSON. Far
 > more robust than CSS selectors. See `app/freshdirect/history.py`.
 
+## License & responsible use
+
+MIT — see [LICENSE](LICENSE). This tool automates **your own** FreshDirect
+account for personal household use; keep request volume human-like and review
+FreshDirect's Terms of Service before using it. It never places an order or
+handles payment — you review and check out yourself.
+
 ## Security notes
 
 - The FreshDirect session lives in a **dedicated** Chrome profile at

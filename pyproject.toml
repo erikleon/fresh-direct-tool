@@ -2,6 +2,8 @@
 name = "freshdirect-planner"
 version = "0.1.0"
 description = "AI agent + web app that plans a household's weekly FreshDirect grocery order"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "playwright>=1.44",
