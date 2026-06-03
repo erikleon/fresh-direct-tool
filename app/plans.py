@@ -138,6 +138,35 @@ def select_alternative(
     _mutate_line(plan_id, line_id, apply, settings)
 
 
+def set_delivery(
+    plan_id: int,
+    address=None,
+    delivery_date=None,
+    tip_dollars=None,
+    settings: Settings | None = None,
+) -> None:
+    """Record the plan's delivery address, preferred date, and tip."""
+    from datetime import datetime, time
+    from decimal import Decimal
+
+    with session_scope(settings or get_settings()) as db:
+        plan = db.get(PlanRow, plan_id)
+        if plan is None:
+            return
+        if address is not None:
+            plan.address1 = address.address1
+            plan.apartment = address.apartment
+            plan.city = address.city
+            plan.state = address.state
+            plan.zip_code = address.zip_code
+        if delivery_date is not None:
+            plan.delivery_start = datetime.combine(delivery_date, time(0, 0))
+        if tip_dollars is not None:
+            plan.tip_cents = to_cents(Decimal(str(tip_dollars)))
+        db.add(plan)
+        db.commit()
+
+
 def approve(plan_id: int, settings: Settings | None = None) -> PlanRow | None:
     """Mark a plan approved. (Cart hand-off to FreshDirect is a later step.)"""
     settings = settings or get_settings()

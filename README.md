@@ -21,7 +21,7 @@ off a ready-to-checkout cart.
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
 | 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
 | 2 | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later) | ✅ done (CLI) |
-| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery, scheduler | in progress |
+| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery ✅ · scheduler | in progress |
 | 4 | (future) Auto-checkout behind a flag | planned |
 
 ## Setup
@@ -77,7 +77,10 @@ uv run fdplanner match "organic whole milk" --teach DAI0059088
 # Build a restock draft cart from items due, priced live, under a budget cap
 uv run fdplanner plan --horizon 7 --budget 200
 
-# Or use the web dashboard: review, edit, swap, and approve in the browser
+# Cache your saved delivery addresses (for the dashboard's address picker)
+uv run fdplanner addresses
+
+# Or use the web dashboard: review, edit, swap, set delivery, approve, hand off
 uv run fdplanner serve            # → http://127.0.0.1:8000
 ```
 
@@ -89,7 +92,11 @@ approved cart to FreshDirect** behind an explicit confirm. Hand-off
 (`app/handoff.py`) drives the real "Add to bag" buttons to populate your cart
 (quantity 1 per line; set higher quantities in the cart) and returns a checkout
 link — it never places the order or pays. You review and check out yourself.
-Delivery address/window/tip pickers and the weekly scheduler are next.
+
+The plan also carries a **delivery** choice: pick which saved address this week's
+order goes to (e.g. home vs. a different address that week), a preferred date, and
+a tip (`app/delivery.py` reads your saved addresses; timeslots stay perishable and
+are reserved by you at checkout). The weekly scheduler + email digest are next.
 
 The draft plan (`app/planner.py`) takes the items due, prices each against the
 live catalog — preferring the *exact* product you've bought before (its

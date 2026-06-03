@@ -87,6 +87,10 @@ class PlanRow(SQLModel, table=True):
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
 
+    def address_one_line(self) -> str:
+        parts = [self.address1, self.apartment, self.city, self.state, self.zip_code]
+        return ", ".join(p for p in parts if p)
+
 
 class PlanLineRow(SQLModel, table=True):
     """One reviewable line of a plan: the selected product plus alternatives."""

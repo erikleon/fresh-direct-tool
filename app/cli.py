@@ -389,6 +389,27 @@ def plan(
 
 
 @app.command()
+def addresses(
+    headed: bool = typer.Option(False, help="Run visibly (clears some bot challenges)"),
+) -> None:
+    """Fetch and cache your saved FreshDirect delivery addresses."""
+    from app.delivery import fetch_addresses
+
+    try:
+        addrs = fetch_addresses(get_settings(), headed=headed)
+    except SessionExpired as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+    if not addrs:
+        console.print("[yellow]No saved addresses found.[/yellow]")
+        return
+    for a in addrs:
+        mark = "[green]●[/green]" if a.selected else " "
+        console.print(f" {mark} {a.one_line()}  [dim]({a.id})[/dim]")
+    console.print(f"\n[green]Cached {len(addrs)} address(es).[/green]")
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind host"),
     port: int = typer.Option(8000, help="Bind port"),

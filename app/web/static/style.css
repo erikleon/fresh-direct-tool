@@ -101,6 +101,16 @@ tr.review td { background: #fffdf5; }
 .swap-form select { max-width: 320px; font-size: 12.5px; padding: 4px 6px; }
 .qty-form input { width: 64px; }
 
+.delivery {
+  background: #fafbfa; border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; margin: 4px 0 16px;
+}
+.delivery-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
+.delivery-form { align-items: flex-end; }
+.delivery-form select { max-width: 280px; }
+.delivery-form input[type=date], .delivery-form input[type=number] { max-width: 150px; }
+code { background: #eef0ee; padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+
 .actions { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
 
 .banner {

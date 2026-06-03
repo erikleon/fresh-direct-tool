@@ -36,6 +36,8 @@ app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static"
 
 
 def _render(request: Request, plan):
+    from app.delivery import load_addresses
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -43,6 +45,7 @@ def _render(request: Request, plan):
             "plan": plan,
             "job": jobs.get_state(),
             "handoff": jobs.handoff_state(),
+            "addresses": load_addresses(),
             "settings": get_settings(),
         },
     )
@@ -84,6 +87,25 @@ def toggle_line(plan_id: int, line_id: int, included: str = Form("")):
 @app.post("/plan/{plan_id}/line/{line_id}/select")
 def select_line(plan_id: int, line_id: int, sku: str = Form(...)):
     select_alternative(plan_id, line_id, sku, learn=True)
+    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+
+
+@app.post("/plan/{plan_id}/delivery")
+def edit_delivery(
+    plan_id: int,
+    address_id: str = Form(""),
+    delivery_date: str = Form(""),
+    tip: str = Form(""),
+):
+    from datetime import date as _date
+
+    from app.delivery import load_addresses
+    from app.plans import set_delivery
+
+    address = next((a for a in load_addresses() if a.id == address_id), None)
+    ddate = _date.fromisoformat(delivery_date) if delivery_date else None
+    tip_val = float(tip) if tip else None
+    set_delivery(plan_id, address=address, delivery_date=ddate, tip_dollars=tip_val)
     return RedirectResponse(f"/plan/{plan_id}", status_code=303)
 
 

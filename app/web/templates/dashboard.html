@@ -72,6 +72,51 @@
       <div class="budget-label"><strong>{{ sub | dollars }}</strong> · no budget cap set</div>
     {% endif %}
 
+    <div class="delivery">
+      <div class="delivery-head">
+        <strong>Delivery</strong>
+        {% if plan.address1 %}
+          <span class="muted small">{{ plan.address_one_line() }}
+            {% if plan.delivery_start %}· {{ plan.delivery_start.strftime('%a %b %d') }}{% endif %}
+            {% if plan.tip_cents %}· tip {{ plan.tip_cents | dollars }}{% endif %}
+          </span>
+        {% else %}
+          <span class="muted small">not set</span>
+        {% endif %}
+      </div>
+      {% if plan.status != 'handed_off' %}
+        {% if addresses %}
+          <form method="post" action="/plan/{{ plan.id }}/delivery" class="row gap delivery-form">
+            <div>
+              <label>Address</label>
+              <select name="address_id">
+                {% for a in addresses %}
+                  <option value="{{ a.id }}"
+                    {{ 'selected' if (a.address1 == plan.address1 and a.zip_code == plan.zip_code) or (not plan.address1 and a.selected) }}>
+                    {{ a.one_line() }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label>Preferred date</label>
+              <input type="date" name="delivery_date"
+                     value="{{ plan.delivery_start.strftime('%Y-%m-%d') if plan.delivery_start else '' }}">
+            </div>
+            <div>
+              <label>Tip ($)</label>
+              <input type="number" name="tip" step="0.50" min="0"
+                     value="{{ '%.2f' % (plan.tip_cents / 100) if plan.tip_cents else '' }}">
+            </div>
+            <div class="grow"></div>
+            <button class="link">Save delivery</button>
+          </form>
+        {% else %}
+          <div class="muted small">Run <code>fdplanner addresses</code> to load your saved addresses.</div>
+        {% endif %}
+      {% endif %}
+    </div>
+
     <table class="cart">
       <thead>
         <tr><th></th><th>Item</th><th>Chosen product</th><th class="r">Price</th><th>Qty</th><th>Why</th></tr>
@@ -157,6 +202,13 @@
           <div>
             <strong>Sent to FreshDirect.</strong>
             <span class="muted">Items are in your cart — review and place the order there.</span>
+            {% if plan.address1 %}
+              <div class="muted small">At checkout, set delivery to
+                <strong>{{ plan.address_one_line() }}</strong>
+                {% if plan.delivery_start %}· {{ plan.delivery_start.strftime('%a %b %d') }}{% endif %}
+                {% if plan.tip_cents %}· tip {{ plan.tip_cents | dollars }}{% endif %}.
+              </div>
+            {% endif %}
             {% if handoff.failed %}
               <div class="muted small">Couldn’t add: {{ handoff.failed | join(', ') }}</div>
             {% endif %}
