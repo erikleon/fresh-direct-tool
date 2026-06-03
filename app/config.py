@@ -52,6 +52,36 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     planner_model: str = "claude-opus-4-8"
 
+    # --- Review surface (Phase 3) ---------------------------------------
+    dashboard_url: str = "http://127.0.0.1:8000"
+    """Base URL the email digest deep-links to (review/approve the draft)."""
+
+    # --- Email digest (SMTP; all optional) ------------------------------
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_starttls: bool = True
+    digest_from: str | None = None
+    """From address; falls back to smtp_user."""
+    digest_to: str | None = None
+    """Who receives the weekly digest. No value → no email is sent."""
+
+    # --- Weekly scheduler (Phase 3) -------------------------------------
+    schedule_day: str = "sat"
+    """Day-of-week cron field for the weekly draft (mon…sun)."""
+    schedule_hour: int = 7
+    schedule_horizon_days: int = 7
+    schedule_max_items: int = 25
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host and self.digest_to)
+
+    @property
+    def digests_dir(self) -> Path:
+        return self.data_dir / "digests"
+
     @property
     def chrome_profile_dir(self) -> Path:
         """Dedicated persistent Chrome profile holding the FreshDirect session."""

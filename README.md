@@ -21,7 +21,7 @@ off a ready-to-checkout cart.
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
 | 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
 | 2 | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later) | ✅ done (CLI) |
-| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery ✅ · scheduler | in progress |
+| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery ✅ · email digest ✅ · weekly scheduler ✅ | ✅ done |
 | 4 | (future) Auto-checkout behind a flag | planned |
 
 ## Setup
@@ -82,6 +82,16 @@ uv run fdplanner addresses
 
 # Or use the web dashboard: review, edit, swap, set delivery, approve, hand off
 uv run fdplanner serve            # → http://127.0.0.1:8000
+
+# Email a review digest for the latest plan (writes an HTML preview if SMTP unset)
+uv run fdplanner digest
+
+# Run the weekly job once now: build this week's draft + send the digest
+uv run fdplanner run-weekly
+
+# Or run it on a schedule (Sat 07:00 by default) — needs the scheduler extra
+uv sync --extra scheduler
+uv run fdplanner schedule
 ```
 
 The dashboard (`app/web/`, FastAPI + Jinja, server-rendered so it works without
@@ -96,7 +106,18 @@ link — it never places the order or pays. You review and check out yourself.
 The plan also carries a **delivery** choice: pick which saved address this week's
 order goes to (e.g. home vs. a different address that week), a preferred date, and
 a tip (`app/delivery.py` reads your saved addresses; timeslots stay perishable and
-are reserved by you at checkout). The weekly scheduler + email digest are next.
+are reserved by you at checkout).
+
+The **autonomous weekly loop** closes Phase 3: `fdplanner schedule` runs a
+weekly cron job (`app/scheduler.py`, APScheduler — the optional `[scheduler]`
+extra) that wakes on a schedule, builds this week's draft, and emails the
+household manager a **digest** (`app/notify/email.py`) summarizing the cart,
+budget, delivery, and any flagged lines, with a deep link to review and approve.
+SMTP is configured via env vars (`FDPLANNER_SMTP_HOST`, `FDPLANNER_SMTP_USER`,
+`FDPLANNER_SMTP_PASSWORD`, `FDPLANNER_DIGEST_TO`, `FDPLANNER_DASHBOARD_URL`); with
+no SMTP set, the digest is written as an HTML preview under `data/digests/`. The
+job stops at the draft + notification — it never places an order, same boundary
+as the manual flow. `fdplanner run-weekly` runs that job once on demand.
 
 The draft plan (`app/planner.py`) takes the items due, prices each against the
 live catalog — preferring the *exact* product you've bought before (its
@@ -146,6 +167,8 @@ app/
   db.py, models.py     # SQLite engine + SQLModel tables (orders, order_items)
   ingest.py            # resumable backfill into the DB
   analytics.py         # spend summary + replenishment cadence (pure + DB-backed)
+  scheduler.py         # autonomous weekly run: build draft -> email digest
+  notify/email.py      # weekly email digest (pure render + SMTP send/preview)
   freshdirect/         # automation adapter, isolated behind an interface
     base.py            #   adapter Protocol + domain models (Order/OrderItem/Address)
     session.py         #   real-Chrome login + persistent-profile reuse

@@ -410,6 +410,52 @@ def addresses(
 
 
 @app.command()
+def digest(
+    plan_id: int = typer.Option(None, help="Which plan to summarize (default: latest)"),
+) -> None:
+    """Email a review digest for a plan (or write an HTML preview if SMTP is unset)."""
+    from app.notify.email import send_digest
+    from app.plans import get_plan, latest_plan_id
+
+    pid = plan_id or latest_plan_id(get_settings())
+    if pid is None:
+        console.print("[yellow]No plan yet — run `fdplanner plan` or `fdplanner run-weekly`.[/yellow]")
+        raise typer.Exit(code=1)
+    plan = get_plan(pid, get_settings())
+    result = send_digest(plan, get_settings())
+    color = "green" if result.sent else "yellow"
+    console.print(f"[{color}]{result.detail}[/{color}]")
+
+
+@app.command("run-weekly")
+def run_weekly_cmd() -> None:
+    """Run the weekly job once now: build this week's draft and send the digest."""
+    from app.scheduler import run_weekly
+
+    try:
+        result = run_weekly(get_settings(), progress=console.print)
+    except SessionExpired as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+    sent = "emailed" if result.digest_sent else "previewed"
+    console.print(
+        f"\n[green]Weekly run done.[/green] Plan #{result.plan_id} drafted and {sent}."
+    )
+
+
+@app.command()
+def schedule() -> None:
+    """Start the blocking weekly scheduler (wakes on schedule, drafts, emails)."""
+    from app.scheduler import start_scheduler
+
+    try:
+        start_scheduler(get_settings(), progress=console.print)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind host"),
     port: int = typer.Option(8000, help="Bind port"),
