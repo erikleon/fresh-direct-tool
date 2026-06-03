@@ -10,6 +10,7 @@ abstraction is what later phases will use to build a cart.
 
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -70,6 +71,52 @@ class _Session:
         result = self._wait_for_search(query)
         products = (result or {}).get("products") or []
         return [parse_product(p) for p in products[:limit] if p]
+
+    # -- cart (mutating) --------------------------------------------------
+    def cart_count(self) -> int | None:
+        """Current number of cart lines, from the lightweightCart op (or None)."""
+        lc = self._sink.ops.get("lightweightCart")
+        return lc.get("cartLinesCount") if isinstance(lc, dict) else None
+
+    def add_to_cart(self, product_url: str) -> bool:
+        """Add one of a product to the live cart by clicking its 'Add to bag'.
+
+        Adds quantity 1 only — deliberately. Multi-quantity is left to the human
+        on the FreshDirect cart page; trying to drive a stepper from the product
+        page risks mis-clicking a recommended product. Returns True once the page
+        confirms the item is in the cart (its Remove control appears).
+        """
+        self._goto(product_url)
+        add = self._page.get_by_role("button", name="Add to bag").first
+        try:
+            add.wait_for(state="visible", timeout=self._settings.nav_timeout_ms)
+        except Exception:
+            return False
+        add.click()
+
+        remove = self._page.get_by_role("button", name=re.compile(r"remove .* from cart", re.I))
+        for _ in range(16):  # poll up to ~8s for the cart UI to update
+            if remove.count():
+                return True
+            self._page.wait_for_timeout(500)
+        return False
+
+    def open_cart(self) -> str:
+        """Return the cart/checkout URL (where the human finishes the order).
+
+        ``/checkout`` redirects to FreshDirect's cart ('Your Bag'); we navigate
+        there so the returned link lands the user on a populated cart.
+        """
+        try:
+            self._page.goto(
+                f"{self._settings.fd_base_url}/checkout",
+                wait_until="domcontentloaded",
+                timeout=self._settings.nav_timeout_ms,
+            )
+            self._page.wait_for_timeout(1500)
+        except Exception:
+            return f"{self._settings.fd_base_url}/checkout"
+        return self._page.url
 
     def _wait_for_search(self, query: str):
         """Wait for a productSearch response that actually reflects this query."""

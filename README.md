@@ -21,7 +21,7 @@ off a ready-to-checkout cart.
 | 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
 | 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
 | 2 | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later) | ✅ done (CLI) |
-| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off, delivery, scheduler | in progress |
+| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery, scheduler | in progress |
 | 4 | (future) Auto-checkout behind a flag | planned |
 
 ## Setup
@@ -84,10 +84,12 @@ uv run fdplanner serve            # → http://127.0.0.1:8000
 The dashboard (`app/web/`, FastAPI + Jinja, server-rendered so it works without
 client JS) lets the household manager **review** the draft cart, **edit**
 quantities, **remove** items, **swap** to a cheaper/different product (which is
-learned as an alias), watch the **budget bar**, and **approve**. Generation runs
-in the background (`app/web/jobs.py`) with a live progress refresh. Cart hand-off
-to FreshDirect checkout, delivery address/window/tip, and the weekly scheduler are
-the next build steps.
+learned as an alias), watch the **budget bar**, **approve**, and then **send the
+approved cart to FreshDirect** behind an explicit confirm. Hand-off
+(`app/handoff.py`) drives the real "Add to bag" buttons to populate your cart
+(quantity 1 per line; set higher quantities in the cart) and returns a checkout
+link — it never places the order or pays. You review and check out yourself.
+Delivery address/window/tip pickers and the weekly scheduler are next.
 
 The draft plan (`app/planner.py`) takes the items due, prices each against the
 live catalog — preferring the *exact* product you've bought before (its

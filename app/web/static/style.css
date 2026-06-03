@@ -43,12 +43,15 @@ input[type=number], input[type=text], select {
 .grow { flex: 1; }
 
 button { font: inherit; cursor: pointer; }
-button.primary {
-  background: var(--green); color: #fff; border: 0; border-radius: 999px;
-  padding: 10px 18px; font-weight: 600;
+.primary {
+  display: inline-block; background: var(--green); color: #fff; border: 0;
+  border-radius: 999px; padding: 10px 18px; font-weight: 600; text-decoration: none;
 }
-button.primary:disabled { opacity: .5; cursor: default; }
-button.primary.big { padding: 12px 26px; font-size: 16px; }
+.primary:disabled { opacity: .5; cursor: default; }
+.primary.big { padding: 12px 26px; font-size: 16px; }
+.handoff { display: flex; flex-direction: column; gap: 10px; }
+.confirm { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; color: var(--ink); max-width: 520px; }
+.confirm input { margin-top: 2px; }
 button.link {
   background: none; border: 0; color: var(--green); font-weight: 600; padding: 2px 4px;
 }

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block head %}
-  {% if job.status == "running" %}<meta http-equiv="refresh" content="3">{% endif %}
+  {% if job.status == "running" or handoff.status == "running" %}<meta http-equiv="refresh" content="3">{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -125,18 +125,52 @@
     </table>
 
     <div class="actions">
+      {% set included = plan.lines | selectattr('included') | list %}
       {% if plan.status == 'draft' %}
         <form method="post" action="/plan/{{ plan.id }}/approve">
           <button class="primary big">Approve cart →</button>
         </form>
         <span class="muted small">
-          {{ plan.review_count if plan.review_count is defined else (plan.lines | selectattr('needs_review') | list | length) }}
+          {{ plan.lines | selectattr('needs_review') | selectattr('included') | list | length }}
           line(s) flagged for review
         </span>
-      {% else %}
-        <div class="banner ok"><strong>Approved.</strong>
-          <span class="muted">Hand-off to FreshDirect checkout is the next build step.</span>
+
+      {% elif plan.status == 'approved' %}
+        {% if handoff.status == 'running' and handoff.plan_id == plan.id %}
+          <div class="banner running"><span class="spinner"></span>
+            <div><strong>Adding to your FreshDirect cart…</strong>
+              <div class="muted small">{{ handoff.message }}</div></div>
+          </div>
+        {% else %}
+          <form method="post" action="/plan/{{ plan.id }}/handoff" class="handoff">
+            <label class="confirm">
+              <input type="checkbox" name="confirm" value="on" required>
+              Add these {{ included | length }} item(s) to my real FreshDirect cart.
+              I’ll review and place the order myself.
+            </label>
+            <button class="primary big">Send to FreshDirect →</button>
+          </form>
+        {% endif %}
+
+      {% elif plan.status == 'handed_off' %}
+        <div class="banner ok">
+          <div>
+            <strong>Sent to FreshDirect.</strong>
+            <span class="muted">Items are in your cart — review and place the order there.</span>
+            {% if handoff.failed %}
+              <div class="muted small">Couldn’t add: {{ handoff.failed | join(', ') }}</div>
+            {% endif %}
+            {% if handoff.multi_qty %}
+              <div class="muted small">Added 1 each — set higher quantities in your cart for:
+                {{ handoff.multi_qty | join(', ') }}</div>
+            {% endif %}
+          </div>
         </div>
+        {% if plan.checkout_url %}
+          <a class="primary big" href="{{ plan.checkout_url }}" target="_blank" rel="noopener">
+            Open your FreshDirect cart →
+          </a>
+        {% endif %}
       {% endif %}
     </div>
   </section>

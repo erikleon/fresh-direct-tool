@@ -35,16 +35,25 @@ app = FastAPI(title="FreshDirect Weekly Planner")
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 
 
+def _render(request: Request, plan):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "plan": plan,
+            "job": jobs.get_state(),
+            "handoff": jobs.handoff_state(),
+            "settings": get_settings(),
+        },
+    )
+
+
 @app.get("/")
 def home(request: Request):
     state = jobs.get_state()
     plan_id = state.plan_id if state.status == "done" else latest_plan_id()
     plan = get_plan(plan_id) if plan_id else None
-    return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html",
-        context={"plan": plan, "job": state, "settings": get_settings()},
-    )
+    return _render(request, plan)
 
 
 @app.post("/generate")
@@ -57,12 +66,7 @@ def generate(horizon: int = Form(7), budget: float = Form(None), max_items: int 
 
 @app.get("/plan/{plan_id}")
 def view_plan(request: Request, plan_id: int):
-    plan = get_plan(plan_id)
-    return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html",
-        context={"plan": plan, "job": jobs.get_state(), "settings": get_settings()},
-    )
+    return _render(request, get_plan(plan_id))
 
 
 @app.post("/plan/{plan_id}/line/{line_id}/qty")
@@ -86,6 +90,13 @@ def select_line(plan_id: int, line_id: int, sku: str = Form(...)):
 @app.post("/plan/{plan_id}/approve")
 def approve_plan(plan_id: int):
     approve(plan_id)
+    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+
+
+@app.post("/plan/{plan_id}/handoff")
+def handoff(plan_id: int, confirm: str = Form("")):
+    if confirm == "on":
+        jobs.start_handoff(plan_id)
     return RedirectResponse(f"/plan/{plan_id}", status_code=303)
 
 
