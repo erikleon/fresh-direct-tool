@@ -26,11 +26,20 @@ off a ready-to-checkout cart.
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/).
+Requires [uv](https://docs.astral.sh/uv/) and **Google Chrome installed**
+(the scraper drives your real Chrome to get past FreshDirect's bot defense —
+see "Why real Chrome?" below).
 
 ```bash
-uv sync                       # install dependencies
-uv run playwright install chromium
+uv sync                                 # install dependencies
+uv run playwright install chromium      # optional: bundled-Chromium fallback only
+cp .env.example .env                     # optional: configure budget, SMTP, schedule
+```
+
+The optional weekly scheduler needs an extra:
+
+```bash
+uv sync --extra scheduler
 ```
 
 ## Phase 0 usage
