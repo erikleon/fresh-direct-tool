@@ -11,18 +11,27 @@ off a ready-to-checkout cart.
 > full access to your account, so everything runs on your own machine/server and
 > the session is encrypted at rest.
 
+## Preview
+
+![The review dashboard: draft cart with live prices, budget bar, cheaper-swap suggestions, a flagged-for-review line, and the preferred delivery slot](docs/preview.png)
+
+The household manager's review dashboard — a draft cart with live prices and a
+budget bar, cheaper-swap suggestions, a low-confidence line flagged for review,
+and the preferred Sunday-evening delivery slot — all before you approve and hand
+off a ready-to-checkout cart. _(Shown with synthetic demo data.)_
+
 ## Status
 
 **Phase 0 — automation spike: done.** We log into FreshDirect through real Chrome
 (past Akamai) and read full order history + line items via their GraphQL API.
 
-| Phase | Scope | State |
-|------|-------|-------|
-| 0 | FD login + order history & line items via GraphQL (+ paste fallback) | ✅ done |
-| 1 | SQLite persistence, resumable backfill, spend tracking + replenishment | ✅ done (CLI) |
-| 2 | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later) | ✅ done (CLI) |
-| 3 | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery ✅ · email digest ✅ · weekly scheduler ✅ | ✅ done |
-| 4 | (future) Auto-checkout behind a flag | planned |
+| Phase | Scope                                                                                                          | State         |
+| ----- | -------------------------------------------------------------------------------------------------------------- | ------------- |
+| 0     | FD login + order history & line items via GraphQL (+ paste fallback)                                           | ✅ done       |
+| 1     | SQLite persistence, resumable backfill, spend tracking + replenishment                                         | ✅ done (CLI) |
+| 2     | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later)                         | ✅ done (CLI) |
+| 3     | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery ✅ · email digest ✅ · weekly scheduler ✅ | ✅ done       |
+| 4     | (future) Auto-checkout behind a flag                                                                           | planned       |
 
 ## Setup
 
@@ -129,7 +138,7 @@ job stops at the draft + notification — it never places an order, same boundar
 as the manual flow. `fdplanner run-weekly` runs that job once on demand.
 
 The draft plan (`app/planner.py`) takes the items due, prices each against the
-live catalog — preferring the *exact* product you've bought before (its
+live catalog — preferring the _exact_ product you've bought before (its
 historical `product_id`) — then reconciles against the weekly cap with
 cheaper-swap suggestions (`app/budget.py`, pure + tested). Low-confidence matches
 are flagged for review. Meal planning will layer on top once an API key is set.
