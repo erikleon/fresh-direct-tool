@@ -84,4 +84,4 @@ def test_send_digest_falls_back_to_preview_file(settings):
     assert result.preview_path is not None
     written = Path(result.preview_path)
     assert written.exists()
-    assert "Review" in written.read_text()
+    assert "Review" in written.read_text(encoding="utf-8")
