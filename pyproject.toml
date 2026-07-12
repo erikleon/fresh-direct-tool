@@ -26,6 +26,9 @@ dependencies = [
 scheduler = [
     "apscheduler>=3.10",
 ]
+mcp = [
+    "mcp>=1.6.0",
+]
 
 [dependency-groups]
 dev = [
@@ -38,6 +41,7 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 fdplanner = "app.cli:app"
+fdplanner-mcp = "app.mcp_server:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

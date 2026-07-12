@@ -168,6 +168,39 @@ from how often it appears across orders and flags what's due.
 > order list) and `order` (each order's line items) — and parse that JSON. Far
 > more robust than CSS selectors. See `app/freshdirect/history.py`.
 
+## MCP server
+
+The auth + data pipeline is also available as an [MCP](https://modelcontextprotocol.io)
+server, so an MCP client (Claude Desktop, Claude Code, etc.) can call it directly
+instead of going through the CLI:
+
+```bash
+uv sync --extra mcp
+uv run fdplanner-mcp     # stdio MCP server
+```
+
+Add it to a client, e.g. `claude mcp add fresh-direct -- uv --directory /path/to/fresh-direct-tool run fdplanner-mcp`.
+
+Tools exposed:
+
+| Tool             | Reads live FreshDirect? | Description                                          |
+| ---------------- | :----------------------: | ----------------------------------------------------- |
+| `fd_session_status` |            no            | Whether a session is saved (no browser)                |
+| `fd_history`        |            yes           | Recent orders (+ line items) via GraphQL               |
+| `fd_backfill`       |            yes           | Sync full history into the local DB (resumable)        |
+| `fd_spend`          |            no            | Spend totals / monthly trend / category breakdown      |
+| `fd_due`            |            no            | Replenishment forecast — staples due for restock       |
+| `fd_search`         |            yes           | Live catalog search                                     |
+| `fd_match`          |            yes           | Resolve free text to a real SKU (alias → heuristic → AI)|
+| `fd_teach_match`    |            no            | Correct a match so it resolves instantly next time      |
+| `fd_profile`        |            no            | Infer (and save) a household dietary profile            |
+
+Login stays a manual, interactive step — `uv run fdplanner login` opens a real
+Chrome window for 2FA/captcha, which can't be driven from an MCP tool call.
+Once logged in, `fd_session_status` confirms the saved session and the other
+tools reuse it. Planning, cart hand-off, and checkout aren't exposed here; use
+`fdplanner plan` / `fdplanner serve` for those.
+
 ## License & responsible use
 
 MIT — see [LICENSE](LICENSE). This tool automates **your own** FreshDirect
@@ -188,6 +221,7 @@ handles payment — you review and check out yourself.
 app/
   config.py            # settings (env-driven)
   cli.py               # CLI: login / history / backfill / spend / due / import-paste
+  mcp_server.py         # MCP server: auth status + data pipeline as tools
   money.py             # Decimal dollars <-> integer cents
   db.py, models.py     # SQLite engine + SQLModel tables (orders, order_items)
   ingest.py            # resumable backfill into the DB
