@@ -174,12 +174,37 @@ The auth + data pipeline is also available as an [MCP](https://modelcontextproto
 server, so an MCP client (Claude Desktop, Claude Code, etc.) can call it directly
 instead of going through the CLI:
 
+Install it as a tool (no repo checkout needed), which puts `fdplanner` and
+`fdplanner-mcp` on your PATH:
+
 ```bash
-uv sync --extra mcp
-uv run fdplanner-mcp     # stdio MCP server
+uv tool install "git+https://github.com/erikleon/fresh-direct-tool.git[mcp]"
 ```
 
-Add it to a client, e.g. `claude mcp add fresh-direct -- uv --directory /path/to/fresh-direct-tool run fdplanner-mcp`.
+Then register it with a client — the command has no machine-specific path:
+
+```bash
+claude mcp add fresh-direct -- fdplanner-mcp
+```
+
+Or run from a checkout for development: `uv sync --extra mcp && uv run fdplanner-mcp`.
+
+The `[mcp]` extra is required — installing without it makes the server fail to
+import `mcp` at startup, which a client reports only as "failed to connect."
+
+**Where state lives.** The SQLite DB and the Chrome session profile default to a
+per-user OS data dir (`platformdirs`, e.g. `%LOCALAPPDATA%\freshdirect-planner`
+on Windows) so the CLI and the MCP server agree no matter which directory the
+client launches the server from. Override with `FDPLANNER_DATA_DIR`. Since an MCP
+client launches the server from an arbitrary working directory, pass config as
+environment variables rather than relying on a `.env` file, e.g.:
+
+```bash
+claude mcp add fresh-direct \
+  -e FDPLANNER_ANTHROPIC_API_KEY=sk-ant-... \
+  -e FDPLANNER_WEEKLY_BUDGET=200 \
+  -- fdplanner-mcp
+```
 
 Tools exposed:
 

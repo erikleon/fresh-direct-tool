@@ -10,11 +10,16 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from platformdirs import user_data_dir
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Repo root (…/groceries). Local-first: all state lives under ./data by default.
-ROOT = Path(__file__).resolve().parent.parent
+# Local-first, but the state dir must NOT be derived from this file's location:
+# once the package is installed (uv tool / uvx), app/ lives in site-packages and
+# a repo-relative path would point at an ephemeral install dir the CLI and the
+# MCP server don't share. Default to a stable per-user dir; override with
+# FDPLANNER_DATA_DIR (e.g. to pin an existing ./data checkout).
+DEFAULT_DATA_DIR = Path(user_data_dir("freshdirect-planner", appauthor=False))
 
 
 class Settings(BaseSettings):
@@ -26,8 +31,12 @@ class Settings(BaseSettings):
     )
 
     # --- Storage ---------------------------------------------------------
-    data_dir: Path = Field(default=ROOT / "data")
-    """Directory for the SQLite DB and the persistent Chrome profile."""
+    data_dir: Path = Field(default=DEFAULT_DATA_DIR)
+    """Directory for the SQLite DB and the persistent Chrome profile.
+
+    Defaults to a per-user OS data dir so an installed server and the CLI agree
+    regardless of working directory. Set FDPLANNER_DATA_DIR to relocate it.
+    """
 
     # --- FreshDirect -----------------------------------------------------
     fd_base_url: str = "https://www.freshdirect.com"
