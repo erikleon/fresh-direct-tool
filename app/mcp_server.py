@@ -12,6 +12,7 @@ terminal, then use `fd_session_status` to confirm the saved session is there.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -67,7 +68,7 @@ def fd_session_status() -> dict:
 
 
 @mcp.tool()
-def fd_history(limit: int = 10, with_details: bool = False) -> dict:
+async def fd_history(limit: int = 10, with_details: bool = False) -> dict:
     """Read recent FreshDirect orders from the saved session via GraphQL.
 
     Set with_details=True to also fetch each order's line items (slower: one
@@ -76,14 +77,19 @@ def fd_history(limit: int = 10, with_details: bool = False) -> dict:
     from app.freshdirect.client import fetch_order_history
 
     try:
-        orders = fetch_order_history(get_settings(), limit=limit, with_details=with_details)
+        # Playwright's sync API refuses to run on a thread with an active
+        # asyncio loop (which is exactly the thread FastMCP calls us on), so
+        # push the actual browser work onto a worker thread.
+        orders = await asyncio.to_thread(
+            fetch_order_history, get_settings(), limit=limit, with_details=with_details
+        )
     except SessionExpired as exc:
         return {"error": str(exc)}
     return {"orders": [_order_dict(o) for o in orders]}
 
 
 @mcp.tool()
-def fd_backfill(limit: int = 500) -> dict:
+async def fd_backfill(limit: int = 500) -> dict:
     """Sync full order history (with line items) into the local database.
 
     Resumable: re-running only fetches orders whose line items aren't stored
@@ -93,7 +99,7 @@ def fd_backfill(limit: int = 500) -> dict:
     from app.ingest import backfill as run_backfill
 
     try:
-        result = run_backfill(get_settings(), limit=limit)
+        result = await asyncio.to_thread(run_backfill, get_settings(), limit=limit)
     except SessionExpired as exc:
         return {"error": str(exc)}
     return {
@@ -164,7 +170,7 @@ def fd_due(
 
 
 @mcp.tool()
-def fd_search(query: str, limit: int = 12) -> dict:
+async def fd_search(query: str, limit: int = 12) -> dict:
     """Search the live FreshDirect catalog and return candidate products with prices.
 
     Requires a saved session.
@@ -172,14 +178,16 @@ def fd_search(query: str, limit: int = 12) -> dict:
     from app.freshdirect.client import FreshDirectClient
 
     try:
-        products = FreshDirectClient(get_settings()).search_products(query, limit=limit)
+        products = await asyncio.to_thread(
+            FreshDirectClient(get_settings()).search_products, query, limit=limit
+        )
     except SessionExpired as exc:
         return {"error": str(exc)}
     return {"products": [_product_dict(p) for p in products]}
 
 
 @mcp.tool()
-def fd_match(item: str, brand: str | None = None) -> dict:
+async def fd_match(item: str, brand: str | None = None) -> dict:
     """Resolve a free-text grocery need to a real FreshDirect SKU.
 
     Tries a learned alias first, then heuristic ranking of live search results
@@ -192,7 +200,9 @@ def fd_match(item: str, brand: str | None = None) -> dict:
 
     settings = get_settings()
     try:
-        candidates = FreshDirectClient(settings).search_products(item, limit=30)
+        candidates = await asyncio.to_thread(
+            FreshDirectClient(settings).search_products, item, limit=30
+        )
     except SessionExpired as exc:
         return {"error": str(exc)}
 
