@@ -17,7 +17,7 @@ from app.budget import DraftPlan, PlanLine, reconcile
 from app.config import Settings, get_settings
 from app.freshdirect.base import Product
 from app.freshdirect.client import FreshDirectClient
-from app.match import score_candidates
+from app.match import calibrated_confidence, score_candidates
 
 ProgressCb = Callable[[str], None]
 
@@ -74,8 +74,7 @@ def _line_for(pred: Prediction, candidates: list[Product]) -> PlanLine | None:
         top = ranked[0]
         pick = top.product
         runner = ranked[1].score if len(ranked) > 1 else 0.0
-        sep = min(1.0, max(0.0, top.score - runner) / 0.3)
-        confidence = round(max(0.0, min(1.0, top.score)) * (0.6 + 0.4 * sep), 3)
+        confidence = calibrated_confidence(top.score, runner)
 
     alternatives = [c for c in candidates if c.sku != pick.sku and c.price is not None]
     status = "due" if pred.days_overdue >= 0 else "soon"

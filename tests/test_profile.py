@@ -1,4 +1,8 @@
-"""Tests for dietary-profile inference (pure, no DB/network/AI)."""
+"""Tests for dietary-profile inference.
+
+The pure signal/draft tests need no DB. The `infer_profile` gating tests use an
+isolated temp DB and mock `app.ai` — no real client is built.
+"""
 
 from dataclasses import dataclass
 
@@ -85,3 +89,33 @@ def test_empty_basket():
     # draft_profile must not divide-by-zero on an empty basket.
     p = draft_profile(s)
     assert p.organic_preference == "low"
+
+
+# --- infer_profile AI gating (isolated DB, mocked AI) ----------------------
+
+
+def test_infer_profile_skips_ai_without_key(monkeypatch, tmp_path):
+    from app import profile as profmod
+    from app.config import Settings
+    from app.db import init_db
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FDPLANNER_ANTHROPIC_API_KEY", raising=False)
+    s = Settings(data_dir=tmp_path, anthropic_api_key=None)
+    init_db(s)  # empty DB is fine — we're testing the gate, not the signals
+    prof, _ = profmod.infer_profile(s, use_ai=True)
+    assert prof.source == "heuristic"  # AI path never ran
+
+
+def test_infer_profile_uses_ai_when_configured(monkeypatch, tmp_path):
+    from app import ai
+    from app import profile as profmod
+    from app.config import Settings
+    from app.db import init_db
+
+    s = Settings(data_dir=tmp_path, anthropic_api_key="test-key")
+    init_db(s)
+    sentinel = profmod.DietaryProfile(diet_style="ai-refined", source="heuristic+ai")
+    monkeypatch.setattr(ai, "synthesize_profile", lambda sig, draft, settings=None: sentinel)
+    prof, _ = profmod.infer_profile(s, use_ai=True)
+    assert prof is sentinel

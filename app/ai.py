@@ -8,10 +8,13 @@ The anthropic SDK is imported lazily so the rest of the app runs without a key.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 
 from app.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 # Reused across calls; marked cacheable so repeated requests hit the prompt cache.
 _PROFILE_SYSTEM = (
@@ -104,14 +107,18 @@ def synthesize_profile(signals, draft, settings: Settings | None = None):
                 }
             ],
         )
-    except Exception as exc:  # network/auth/etc. — never block on the AI path
+    except Exception as exc:  # network/auth/SDK-missing — never block on the AI path
+        logger.debug("AI profile refinement skipped: %s", exc, exc_info=True)
         draft.notes.append(f"(AI refinement skipped: {type(exc).__name__})")
         return draft
 
     data = _first_tool_input(resp)
     if not data:
         return draft
-    merged = {**draft.model_dump(), **data, "source": "heuristic+ai"}
+    # Treat AI output as additive: drop empty values so the model can enrich the
+    # heuristic draft but never blank out a field the purchases actually support.
+    enrich = {k: v for k, v in data.items() if v not in (None, "", [], {})}
+    merged = {**draft.model_dump(), **enrich, "source": "heuristic+ai"}
     return DietaryProfile.model_validate(merged)
 
 
@@ -167,7 +174,8 @@ def rank_products(query: str, candidates, profile_hint: str | None = None,
             tool_choice={"type": "tool", "name": "choose_product"},
             messages=[{"role": "user", "content": json.dumps(payload, indent=2)}],
         )
-    except Exception:
+    except Exception as exc:  # network/auth/SDK-missing — degrade to the heuristic
+        logger.debug("AI product rank skipped: %s", exc, exc_info=True)
         return None
     return _first_tool_input(resp)
 

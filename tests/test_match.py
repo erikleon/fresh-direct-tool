@@ -1,9 +1,21 @@
-"""Tests for the heuristic SKU matcher (pure; no network/DB/LLM)."""
+"""Tests for the heuristic SKU matcher (pure; no network/DB/LLM).
+
+The `resolve()` AI-branch tests mock `app.ai` — no real client is built.
+"""
 
 from decimal import Decimal
 
+import pytest
+
+from app import ai
 from app.freshdirect.base import Product
-from app.match import best_match, normalize_key, score_candidates
+from app.match import (
+    best_match,
+    calibrated_confidence,
+    normalize_key,
+    resolve,
+    score_candidates,
+)
 
 
 def _p(sku, name, brand=None, organic=False, sold_out=False, size=None, price="1.00"):
@@ -94,3 +106,87 @@ def test_no_candidates_needs_review():
 
 def test_normalize_key_is_order_insensitive():
     assert normalize_key("Organic Whole Milk") == normalize_key("milk whole organic")
+
+
+# --- calibrated_confidence -------------------------------------------------
+
+
+def test_calibrated_confidence_rewards_separation():
+    clear = calibrated_confidence(0.9, 0.1)   # runaway winner
+    tie = calibrated_confidence(0.9, 0.85)    # near tie
+    assert clear > tie
+    assert 0.0 <= tie <= 1.0
+
+
+def test_calibrated_confidence_clamps_out_of_range():
+    assert calibrated_confidence(2.0, 0.0) <= 1.0
+    assert calibrated_confidence(-1.0, -2.0) >= 0.0
+
+
+def test_sold_out_top_pick_forces_review():
+    only = [_p("S", "Whole Milk, Carton", "Brand", organic=True, sold_out=True, size="1/2 gallon")]
+    r = best_match("organic whole milk", only)
+    assert r.pick.sku == "S"      # it's the only candidate
+    assert r.needs_review         # but a sold-out pick is never proposed confidently
+
+
+# --- resolve() AI branch (mocked client) -----------------------------------
+
+
+@pytest.fixture
+def no_alias(monkeypatch):
+    """Skip the DB alias lookup so resolve() exercises heuristic + AI only."""
+    monkeypatch.setattr("app.match.get_alias", lambda q, s=None: None)
+
+
+@pytest.fixture
+def ai_on(monkeypatch):
+    monkeypatch.setattr(ai, "is_configured", lambda s=None: True)
+
+
+def test_resolve_ai_disabled_returns_heuristic(no_alias):
+    r = resolve("organic whole milk", CANDIDATES, use_ai=False)
+    assert r.method == "heuristic"
+    assert r.pick.sku == "B"
+
+
+def test_resolve_ai_pick_is_capped_at_heuristic_confidence(no_alias, ai_on, monkeypatch):
+    # Claude confidently (0.9) picks A — a non-organic bottle — for an organic
+    # need. The cap pulls confidence down to the heuristic's view of A and flags it.
+    monkeypatch.setattr(ai, "rank_products", lambda q, c, **k: {"sku": "A", "confidence": 0.9})
+    r = resolve("organic whole milk", CANDIDATES, use_ai=True)
+    assert r.method == "ai"
+    assert r.pick.sku == "A"
+    assert r.confidence < 0.9    # not the inflated self-report
+    assert r.needs_review        # poor heuristic fit → human look
+
+
+def test_resolve_empty_sku_forces_review(no_alias, ai_on, monkeypatch):
+    # "nothing fits" keeps the heuristic pick but flags it.
+    monkeypatch.setattr(ai, "rank_products", lambda q, c, **k: {"sku": "", "confidence": 0.0})
+    r = resolve("organic whole milk", CANDIDATES, use_ai=True)
+    assert r.method == "heuristic"
+    assert r.pick.sku == "B"
+    assert r.needs_review
+
+
+def test_resolve_hallucinated_sku_falls_back(no_alias, ai_on, monkeypatch):
+    monkeypatch.setattr(ai, "rank_products", lambda q, c, **k: {"sku": "ZZZ", "confidence": 0.99})
+    r = resolve("organic whole milk", CANDIDATES, use_ai=True)
+    assert r.method == "heuristic"
+    assert r.pick.sku == "B"
+
+
+def test_resolve_sold_out_ai_pick_falls_back(no_alias, ai_on, monkeypatch):
+    # D is in the shortlist but sold out; the AI pick is rejected.
+    monkeypatch.setattr(ai, "rank_products", lambda q, c, **k: {"sku": "D", "confidence": 0.95})
+    r = resolve("organic whole milk", CANDIDATES, use_ai=True)
+    assert r.method == "heuristic"
+    assert r.pick.sku != "D"
+
+
+def test_resolve_no_key_returns_heuristic(no_alias, monkeypatch):
+    monkeypatch.setattr(ai, "is_configured", lambda s=None: False)
+    monkeypatch.setattr(ai, "rank_products", lambda *a, **k: pytest.fail("AI called without a key"))
+    r = resolve("organic whole milk", CANDIDATES, use_ai=True)
+    assert r.method == "heuristic"

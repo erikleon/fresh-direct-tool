@@ -50,10 +50,11 @@ class MatchResult:
     confidence: float
     method: str  # alias | heuristic | ai | none
     alternatives: list[Product] = field(default_factory=list)
+    force_review: bool = False  # set when the AI signals doubt (e.g. "nothing fits")
 
     @property
     def needs_review(self) -> bool:
-        return self.pick is None or self.confidence < 0.5
+        return self.force_review or self.pick is None or self.confidence < 0.5
 
 
 def score_candidates(
@@ -110,6 +111,18 @@ def score_candidates(
     return scored
 
 
+def calibrated_confidence(top_score: float, runner_up_score: float) -> float:
+    """Blend absolute fit with separation from the runner-up into a 0-1 score.
+
+    A high raw score alone isn't enough: when the runner-up is nearly as good
+    (an ambiguous match), confidence should read lower. Shared by the matcher
+    and the planner so both agree on what a given confidence means.
+    """
+    base = max(0.0, min(1.0, top_score))
+    separation = min(1.0, max(0.0, top_score - runner_up_score) / 0.3)
+    return round(base * (0.6 + 0.4 * separation), 3)
+
+
 def best_match(
     query: str,
     candidates: list[Product],
@@ -131,16 +144,17 @@ def best_match(
     top = ranked[0]
     runner_up = ranked[1].score if len(ranked) > 1 else 0.0
 
-    # Confidence blends absolute fit with separation from the runner-up: when
-    # many products tie (ambiguous), even a high raw score shouldn't read as sure.
-    base = max(0.0, min(1.0, top.score))
-    separation = min(1.0, max(0.0, top.score - runner_up) / 0.3)
-    confidence = base * (0.6 + 0.4 * separation)
+    confidence = calibrated_confidence(top.score, runner_up)
+    # A sold-out top pick only wins when everything else is sold out too (the
+    # -1.0 penalty sinks it otherwise); when it does, force a human look rather
+    # than quietly proposing an unbuyable item.
+    if top.product.sold_out:
+        confidence = min(confidence, 0.4)
 
     return MatchResult(
         query=query,
         pick=top.product,
-        confidence=round(confidence, 3),
+        confidence=confidence,
         method="heuristic",
         alternatives=[s.product for s in ranked[1:5]],
     )
@@ -211,17 +225,41 @@ def resolve(
     if not ai.is_configured(settings):
         return result
 
-    by_sku = {p.sku: p for p in candidates}
-    # Hand Claude the heuristic's shortlist (pick + alternatives), not all 30.
+    # Hand Claude the heuristic's shortlist (pick + alternatives), not all 30,
+    # and only accept a pick from what it actually saw.
     shortlist = [result.pick, *result.alternatives] if result.pick else candidates[:8]
+    by_sku = {p.sku: p for p in shortlist}
     choice = ai.rank_products(query, shortlist, profile_hint=profile_hint, settings=settings)
-    if choice and (pick := by_sku.get(choice.get("sku", ""))) and not pick.sold_out:
-        conf = float(choice.get("confidence", result.confidence) or 0.0)
-        return MatchResult(
-            query=query,
-            pick=pick,
-            confidence=round(max(0.0, min(1.0, conf)), 3),
-            method="ai",
-            alternatives=[p for p in shortlist if p.sku != pick.sku][:4],
-        )
-    return result
+    if not choice:
+        return result
+
+    sku = choice.get("sku", "")
+    if not sku:
+        # Claude judged nothing in the shortlist fits — its most useful signal.
+        # Keep the heuristic pick but force a human look.
+        result.force_review = True
+        return result
+
+    pick = by_sku.get(sku)
+    if pick is None or pick.sold_out:
+        # Off-shortlist (hallucinated) or unbuyable sku — trust the heuristic.
+        return result
+
+    # Cap the AI's self-reported confidence at what the heuristic thinks of the
+    # *same* product, so the model can flag doubt but never inflate its way past
+    # the review gate.
+    scores = {
+        s.product.sku: s.score
+        for s in score_candidates(query, candidates, want_organic, preferred_brand)
+    }
+    pick_score = scores.get(pick.sku, 0.0)
+    runner = max((sc for s, sc in scores.items() if s != pick.sku), default=0.0)
+    heuristic_conf = calibrated_confidence(pick_score, runner)
+    ai_conf = max(0.0, min(1.0, float(choice.get("confidence", 0.0) or 0.0)))
+    return MatchResult(
+        query=query,
+        pick=pick,
+        confidence=min(ai_conf, heuristic_conf),
+        method="ai",
+        alternatives=[p for p in shortlist if p.sku != pick.sku][:4],
+    )
