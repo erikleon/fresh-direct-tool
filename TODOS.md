@@ -29,3 +29,18 @@ considered and deferred, not rejected outright.
   + release discipline (`version` in `pyproject.toml` is the source of truth) and
   ideally CI release automation. Revisit only if this is meant for other people.
 - **Depends on:** a claimed PyPI name; release process.
+
+## AI paths — prompt-quality eval (deferred)
+
+### Real-API eval for rank_products / synthesize_profile
+- **What:** A small eval harness that runs a fixed set of grocery needs against
+  the real Anthropic API and asserts each `fd_match` pick lands in a curated
+  acceptable-SKU set (and that `synthesize_profile` stays grounded in signals).
+- **Why:** The unit tests added for `app/ai.py` mock the client, so they cover
+  the plumbing (parse, fallback, confidence blend) but not whether Claude picks
+  *good* products. An eval catches prompt regressions and model drift.
+- **Context:** Deferred during the plan-eng-review of the AI paths. Pick quality
+  is currently gated by the human-review surface (`needs_review` flag + the
+  dashboard). Build this only if AI picks are observed going wrong in practice.
+- **Depends on:** acceptable-SKU fixtures per need; a per-run API budget (real
+  calls, flaky across model updates).
