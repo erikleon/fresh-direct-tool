@@ -72,22 +72,24 @@ def view_plan(request: Request, plan_id: int):
     return _render(request, get_plan(plan_id))
 
 
+# Line edits redirect back to the row's own anchor so the browser lands on the
+# item you just changed instead of scrolling to the top of the page.
 @app.post("/plan/{plan_id}/line/{line_id}/qty")
 def edit_qty(plan_id: int, line_id: int, quantity: float = Form(...)):
     set_quantity(plan_id, line_id, quantity)
-    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+    return RedirectResponse(f"/plan/{plan_id}#line-{line_id}", status_code=303)
 
 
 @app.post("/plan/{plan_id}/line/{line_id}/toggle")
 def toggle_line(plan_id: int, line_id: int, included: str = Form("")):
     set_included(plan_id, line_id, included == "on")
-    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+    return RedirectResponse(f"/plan/{plan_id}#line-{line_id}", status_code=303)
 
 
 @app.post("/plan/{plan_id}/line/{line_id}/select")
 def select_line(plan_id: int, line_id: int, sku: str = Form(...)):
     select_alternative(plan_id, line_id, sku, learn=True)
-    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+    return RedirectResponse(f"/plan/{plan_id}#line-{line_id}", status_code=303)
 
 
 @app.post("/plan/{plan_id}/delivery")

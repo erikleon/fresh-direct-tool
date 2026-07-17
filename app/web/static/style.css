@@ -54,8 +54,10 @@ button { font: inherit; cursor: pointer; }
 .confirm input { margin-top: 2px; }
 button.link {
   background: none; border: 0; color: var(--green); font-weight: 600; padding: 2px 4px;
+  white-space: nowrap;
 }
 button.link.small { font-size: 12px; }
+button.link.danger { color: var(--over); }
 
 .generate { display: block; }
 
@@ -89,6 +91,8 @@ table.cart th {
 }
 table.cart td { padding: 11px 10px; border-bottom: 1px solid #f1f2f1; vertical-align: top; }
 table.cart th.r, table.cart td.r { text-align: right; }
+/* Give an anchored row (landed on after a line edit) breathing room from the top. */
+table.cart tbody tr { scroll-margin-top: 18px; }
 tr.dropped { opacity: .42; }
 tr.review td { background: #fffdf5; }
 
