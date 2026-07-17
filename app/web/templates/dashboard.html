@@ -124,13 +124,15 @@
       </thead>
       <tbody>
       {% for line in plan.lines %}
-        <tr class="{{ 'dropped' if not line.included else '' }} {{ 'review' if line.needs_review else '' }}">
+        <tr id="line-{{ line.id }}" class="{{ 'dropped' if not line.included else '' }} {{ 'review' if line.needs_review else '' }}">
           <td>
             <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/toggle">
               <input type="hidden" name="included" value="{{ 'off' if line.included else 'on' }}">
-              <button class="link" title="{{ 'Remove' if line.included else 'Add back' }}">
-                {{ '✓' if line.included else '＋' }}
-              </button>
+              {% if line.included %}
+                <button class="link danger" aria-label="Remove {{ line.need }} from cart">✕ Remove</button>
+              {% else %}
+                <button class="link" aria-label="Add {{ line.need }} back to cart">＋ Add back</button>
+              {% endif %}
             </form>
           </td>
           <td>
