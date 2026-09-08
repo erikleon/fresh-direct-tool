@@ -16,6 +16,8 @@ def test_tools_registered() -> None:
         "fd_match",
         "fd_teach_match",
         "fd_profile",
+        "fd_request",
+        "fd_requests",
     }
 
 

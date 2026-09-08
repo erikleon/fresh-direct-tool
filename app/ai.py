@@ -47,17 +47,19 @@ _PROFILE_TOOL = {
 }
 
 
+def _api_key(settings: Settings) -> str | None:
+    return settings.resolved_anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+
+
 def is_configured(settings: Settings | None = None) -> bool:
     settings = settings or get_settings()
-    return bool(settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(_api_key(settings))
 
 
 def _client(settings: Settings):
     import anthropic
 
-    return anthropic.Anthropic(
-        api_key=settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-    )
+    return anthropic.Anthropic(api_key=_api_key(settings))
 
 
 def synthesize_profile(signals, draft, settings: Settings | None = None):

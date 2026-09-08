@@ -164,3 +164,27 @@ class ProductAlias(SQLModel, table=True):
     sku: str
     product_name: Optional[str] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RequestRow(SQLModel, table=True):
+    """A free-text thing somebody asked for, waiting to land on a draft plan.
+
+    The household adds to a shared Apple Reminders list; Home Assistant posts
+    each item here. ``external_id`` is that item's id at the source, so the same
+    reminder posted twice is one request rather than two lines in the cart.
+    """
+
+    __tablename__ = "requests"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    text: str
+    source: str = Field(default="manual", index=True)  # reminders | manual | mcp
+    external_id: Optional[str] = Field(default=None, index=True, unique=True)
+
+    # open    — not yet on a plan
+    # planned — resolved to a product and put on plan_id
+    # dropped — asked for and then withdrawn
+    status: str = Field(default="open", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    plan_id: Optional[int] = Field(default=None, foreign_key="plans.id", index=True)

@@ -17,6 +17,41 @@
   <div class="banner error"><strong>Generation failed.</strong> <span class="muted">{{ job.message }}</span></div>
 {% endif %}
 
+<section class="card requests">
+  <div class="plan-head">
+    <h2>Shopping list</h2>
+    <span class="muted small">
+      {{ open_requests | length }} waiting
+      {%- if open_requests %} · added to the next draft{% endif %}
+    </span>
+  </div>
+  <div class="muted small">
+    Anything on the shared Reminders list lands here, and gets matched to a real
+    product on the next draft. Something still sitting here after a draft ran
+    means the catalog had no answer for it.
+  </div>
+  {% if open_requests %}
+    <ul class="request-list">
+      {% for r in open_requests %}
+        <li>
+          <span>{{ r.text }}</span>
+          <span class="tag">{{ r.source }}</span>
+          <form method="post" action="/requests/{{ r.id }}/drop">
+            <button class="link" title="Drop this request">✕</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <form method="post" action="/requests" class="row gap">
+    <div class="grow">
+      <label>Add something</label>
+      <input type="text" name="text" maxlength="200" placeholder="e.g. oat milk" required>
+    </div>
+    <button class="link">Add</button>
+  </form>
+</section>
+
 <section class="card generate">
   <form method="post" action="/generate" class="row gap">
     <div>

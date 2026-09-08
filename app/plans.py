@@ -67,7 +67,15 @@ def save_draft(draft: DraftPlan, settings: Settings | None = None) -> int:
             )
         db.add(plan)
         db.commit()
-        return plan.id
+        plan_id = plan.id
+
+    # Close the inbox requests this draft answered, now that there is an id to
+    # point them at. Outside the session above: mark_planned opens its own.
+    if draft.request_ids:
+        from app.inbox import mark_planned
+
+        mark_planned(draft.request_ids, plan_id, settings)
+    return plan_id
 
 
 def generate_and_save(
