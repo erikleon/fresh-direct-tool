@@ -58,6 +58,10 @@ class DraftPlan:
     lines: list[PlanLine] = field(default_factory=list)
     budget_cap_cents: int | None = None
 
+    # Inbox requests this draft answered. Carried here because they can only be
+    # closed once the plan has an id, which does not exist until save time.
+    request_ids: list[int] = field(default_factory=list)
+
     @property
     def subtotal_cents(self) -> int:
         return sum(line.line_cents for line in self.lines)

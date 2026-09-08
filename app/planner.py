@@ -1,8 +1,11 @@
-"""Assemble a draft weekly plan from the replenishment forecast.
+"""Assemble a draft weekly plan from the replenishment forecast and the inbox.
 
-Restock-only for now (no meal planning yet): take the items predicted due, price
-each against the live catalog — preferring the *exact* product the household has
-bought before (its historical ``product_id``) — and reconcile against the weekly
+Two sources feed a draft. The forecast supplies the staples predicted due; the
+request inbox (:mod:`app.inbox`) supplies whatever somebody asked for out loud —
+typically an item added to the shared Apple Reminders list. Both are priced
+against the live catalog, the forecast preferring the *exact* product the
+household has bought before (its historical ``product_id``) and the requests
+resolved from free text, then the whole thing is reconciled against the weekly
 budget with cheaper-swap suggestions. The result is a reviewable draft cart.
 """
 
@@ -17,7 +20,8 @@ from app.budget import DraftPlan, PlanLine, reconcile
 from app.config import Settings, get_settings
 from app.freshdirect.base import Product
 from app.freshdirect.client import FreshDirectClient
-from app.match import calibrated_confidence, score_candidates
+from app.match import calibrated_confidence, normalize_key, resolve, score_candidates
+from app.models import RequestRow
 
 ProgressCb = Callable[[str], None]
 
@@ -30,7 +34,11 @@ def build_plan(
     headed: bool = False,
     progress: ProgressCb | None = None,
 ) -> DraftPlan:
-    """Build a restock draft plan for items due within ``horizon_days``."""
+    """Build a draft plan: items due within ``horizon_days``, plus open requests.
+
+    ``max_items`` caps the forecast only. A request is something a person typed,
+    so it is never dropped to make room for a predicted staple.
+    """
     settings = settings or get_settings()
     say = progress or (lambda _m: None)
 
@@ -41,7 +49,12 @@ def build_plan(
         p for p in replenishment(settings)
         if p.active and p.days_overdue >= -horizon_days
     ][:max_items]
-    say(f"{len(due)} items due within {horizon_days}d. Pricing against the catalog…")
+
+    from app.inbox import list_open
+
+    requested = list_open(settings)
+    say(f"{len(due)} items due within {horizon_days}d, {len(requested)} requested. "
+        "Pricing against the catalog…")
 
     plan = DraftPlan(week_of=date.today(), budget_cap_cents=cap_cents)
     client = FreshDirectClient(settings, headed=headed)
@@ -54,6 +67,30 @@ def build_plan(
                 plan.lines.append(line)
             say(f"  [{i}/{len(due)}] {pred.name}: "
                 f"{'matched' if line and line.product.price else 'no price'}")
+
+        # Requests go on after the forecast so the dedup below has the full set
+        # of predicted staples to check against.
+        planned_keys = {normalize_key(ln.need) for ln in plan.lines}
+        for i, req in enumerate(requested, 1):
+            key = normalize_key(req.text)
+            if key in planned_keys:
+                # Already coming as a staple. Consume the request anyway, or it
+                # sits open forever and reappears on every later draft.
+                plan.request_ids.append(req.id)
+                say(f"  [{i}/{len(requested)}] {req.text}: already on the plan")
+                continue
+
+            candidates = fd.search_products(req.text, limit=20)
+            line = _line_for_request(req, candidates, settings)
+            if line is None:
+                # Nothing in the catalog answered it. Leave the request open so
+                # it shows up on the dashboard as unmet rather than vanishing.
+                say(f"  [{i}/{len(requested)}] {req.text}: no match, left open")
+                continue
+            plan.lines.append(line)
+            planned_keys.add(key)
+            plan.request_ids.append(req.id)
+            say(f"  [{i}/{len(requested)}] {req.text}: matched {line.product.name}")
 
     reconcile(plan)
     return plan
@@ -90,4 +127,34 @@ def _line_for(pred: Prediction, candidates: list[Product]) -> PlanLine | None:
         confidence=confidence,
         reason=reason,
         alternatives=alternatives,
+    )
+
+
+def _line_for_request(
+    req: RequestRow, candidates: list[Product], settings: Settings
+) -> PlanLine | None:
+    """Resolve a free-text request to a product line.
+
+    Goes through the full :func:`app.match.resolve` — a learned alias first, then
+    the heuristic, then Claude if a key is configured — because "oat milk" is
+    exactly the ambiguous phrasing that alias learning exists for. A weak match
+    still becomes a line: the household manager reviews the cart either way, and
+    a flagged line they can correct is more useful than a silent omission.
+    """
+    if not candidates:
+        return None
+
+    result = resolve(req.text, candidates, settings=settings)
+    if result.pick is None:
+        return None
+
+    where = "reminders list" if req.source == "reminders" else req.source
+    return PlanLine(
+        need=req.text,
+        product=result.pick,
+        quantity=1.0,
+        source="manual",
+        confidence=0.0 if result.force_review else result.confidence,
+        reason=f"requested ({where}), matched by {result.method}",
+        alternatives=[a for a in result.alternatives if a.sku != result.pick.sku],
     )
