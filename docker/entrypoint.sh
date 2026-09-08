@@ -13,6 +13,10 @@ set -euo pipefail
 cmd="${1:-serve}"
 shift || true
 
+# HOME lives on the data volume (see the Dockerfile), so it may not exist on a
+# first run. Chrome fails in confusing ways without a writable one.
+mkdir -p "$HOME"
+
 case "$cmd" in
   serve)
     exec uvicorn app.web.server:app --host "${BIND_HOST:-0.0.0.0}" --port "${PORT:-8000}"

@@ -48,8 +48,14 @@ USER planner
 
 # Everything that survives a rebuild: the SQLite database, the Chrome profile
 # holding the FreshDirect session, saved addresses, digests. Mount a volume here.
+#
+# HOME points inside that volume rather than at /home/planner, because the
+# container may be run as a different uid so the mounted directory can be owned
+# by the host user who manages it. Under `cap_drop: ALL` there is no
+# CAP_DAC_OVERRIDE to paper over a mismatch, and Chrome needs a writable HOME.
+# One writable path, whoever it runs as.
 ENV FDPLANNER_DATA_DIR=/data \
-    HOME=/home/planner
+    HOME=/data/home
 VOLUME ["/data"]
 
 EXPOSE 8000
