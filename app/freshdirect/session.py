@@ -16,9 +16,13 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import re
+import shutil
+import subprocess
 import threading
 import urllib.parse
 from contextlib import contextmanager
+from functools import lru_cache
 from typing import Iterator
 
 from playwright.sync_api import BrowserContext, Error as PlaywrightError, Page, sync_playwright
@@ -42,30 +46,80 @@ _LAUNCH_ARGS = [
     "--no-default-browser-check",
 ]
 
-# One per platform, because the UA has to agree with everything else the browser
-# says about itself. Chrome sends Sec-CH-UA-Platform from the real operating
-# system and it cannot be overridden from here, so a macOS UA string on a Linux
-# server is a contradiction handed straight to the bot defense this whole
-# real-Chrome approach exists to get past.
-_USER_AGENTS = {
+# We have to send a user agent, because headless Chrome puts "HeadlessChrome" in
+# its own and that is the plainest bot tell there is. What we send then has to
+# agree with everything else the browser says about itself, in two ways that are
+# easy to get wrong:
+#
+#   The platform. Chrome sends Sec-CH-UA-Platform from the real operating
+#   system and nothing here can override it, so a macOS UA string from a Linux
+#   server contradicts the client hints on every request.
+#
+#   The version. Sec-CH-UA carries the real major version, so a pinned number
+#   in this file goes stale the first time Chrome updates and then disagrees.
+#
+# So the platform comes from the host and the version comes from the installed
+# browser. _FALLBACK_MAJOR is only used when the binary cannot be asked.
+_FALLBACK_MAJOR = "152"
+
+_UA_TEMPLATES = {
     "Darwin": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
     ),
     "Linux": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
     ),
     "Windows": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
     ),
 }
 
+_CHROME_BINARIES = {
+    "Darwin": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+    "Linux": ["google-chrome", "google-chrome-stable"],
+    "Windows": [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ],
+}
+
+
+@lru_cache(maxsize=4)
+def chrome_major_version(system: str | None = None) -> str:
+    """Major version of the installed Chrome, or the pinned fallback.
+
+    Windows Chrome does not answer ``--version`` on stdout, so that platform
+    always takes the fallback. It is a development platform here, not the
+    server, so the cost is a slightly stale number rather than a failure.
+    """
+    system = system or platform.system()
+    for candidate in _CHROME_BINARIES.get(system, []):
+        binary = candidate if os.path.isabs(candidate) else shutil.which(candidate)
+        if not binary or not os.path.exists(binary):
+            continue
+        try:
+            out = subprocess.run(
+                [binary, "--version"], capture_output=True, text=True, timeout=10
+            ).stdout
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.debug("Could not read Chrome's version from %s: %s", binary, exc, exc_info=True)
+            continue
+        match = re.search(r"\b(\d+)\.\d+\.\d+", out)
+        if match:
+            return match.group(1)
+
+    logger.debug("Falling back to pinned Chrome major version %s", _FALLBACK_MAJOR)
+    return _FALLBACK_MAJOR
+
 
 def user_agent_for(system: str | None = None) -> str:
-    """The UA matching the host platform, defaulting to macOS for anything odd."""
-    return _USER_AGENTS.get(system or platform.system(), _USER_AGENTS["Darwin"])
+    """A UA naming this host's platform and this host's Chrome version."""
+    system = system or platform.system()
+    template = _UA_TEMPLATES.get(system, _UA_TEMPLATES["Darwin"])
+    return template.format(major=chrome_major_version(system))
 
 
 def _playwright_proxy() -> dict | None:
