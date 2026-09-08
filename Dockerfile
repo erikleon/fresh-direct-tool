@@ -43,7 +43,11 @@ RUN chmod +x /usr/local/bin/entrypoint && uv sync --frozen --extra scheduler --e
 # a logged-in shopping session, so it runs as a normal user instead.
 RUN useradd --create-home --uid 10001 planner \
     && mkdir -p /data /opt/playwright \
-    && chown -R planner:planner /data /opt/playwright
+    && chown -R planner:planner /data /opt/playwright \
+    # Xvfb wants this and cannot create it as a non-root user. Without it the
+    # login command still works but opens with an ERROR line, which is the
+    # wrong first impression during the one procedure done by hand.
+    && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 USER planner
 
 # Everything that survives a rebuild: the SQLite database, the Chrome profile
