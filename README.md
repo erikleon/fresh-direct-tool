@@ -31,6 +31,7 @@ off a ready-to-checkout cart. _(Shown with synthetic demo data.)_
 | 1     | SQLite persistence, resumable backfill, spend tracking + replenishment                                         | ✅ done (CLI) |
 | 2     | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later)                         | ✅ done (CLI) |
 | 3     | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery ✅ · email digest ✅ · weekly scheduler ✅ | ✅ done       |
+| 3.5   | Shopping-list inbox ✅ · JSON API ✅ · container + Home Assistant / Apple Reminders bridge ✅          | ✅ done       |
 | 4     | (future) Auto-checkout behind a flag                                                                           | planned       |
 
 ## Setup
@@ -168,6 +169,81 @@ from how often it appears across orders and flags what's due.
 > order list) and `order` (each order's line items) — and parse that JSON. Far
 > more robust than CSS selectors. See `app/freshdirect/history.py`.
 
+## Shopping list (the request inbox)
+
+The restock forecast covers staples bought on a cadence. It has nothing to say
+about "we're out of oat milk", which is most of what a person actually wants to
+add. Those go in the **shopping list**: free text, matched to a real SKU when the
+next draft is built, and shown on the dashboard alongside the predicted staples.
+
+Add to it from the "Shopping list" card at the top of the dashboard, from an MCP
+client with `fd_request`, or over the JSON API below.
+
+An item that is already coming as a staple is absorbed rather than duplicated.
+An item the catalog cannot answer stays on the list after the draft runs, which
+is how you find out it went unmatched rather than quietly missing.
+
+## JSON API
+
+`/api/*` exists for callers that are not a browser — in practice Home Assistant,
+watching a shared Apple Reminders list and posting each item here.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/requests` | `{text, source?, external_id?}`. 201 when recorded, 200 when `external_id` was already seen |
+| `GET /api/requests` | the shopping list, oldest first |
+| `DELETE /api/requests/{id}` | drop one |
+| `POST /api/generate` | start a draft build; 409 if one is running |
+| `GET /api/plan/latest` | status, line count, subtotal, budget, how many lines need review |
+
+`external_id` is what makes this safe to call on a timer: the caller can post
+every open reminder on every run and only new ones become requests.
+
+**These routes are authenticated and the HTML dashboard is not.** That is
+deliberate rather than an oversight. The dashboard is a local-first
+single-household page whose protection is that nothing reaches it; the API is
+reachable from anywhere on the host, so it takes a bearer token from
+`FDPLANNER_API_TOKEN_FILE`. With no token file configured, `/api` refuses
+everything rather than opening up.
+
+```bash
+curl -H "Authorization: Bearer $(cat /run/secrets/fdplanner_api_token)" \
+     -d '{"text":"oat milk","external_id":"uid-1"}' -H 'Content-Type: application/json' \
+     http://127.0.0.1:8000/api/requests
+```
+
+## Running it as a container
+
+The laptop is the wrong home for a weekly job. The `Dockerfile` builds an image
+carrying a real Google Chrome (the bundled Chromium gets a 403, see "Why real
+Chrome?"), and `docker/entrypoint.sh` takes one of three commands:
+
+| Command | What it runs |
+| --- | --- |
+| `serve` (default) | the dashboard and the JSON API |
+| `schedule` | the weekly draft-and-digest loop |
+| `login` | Xvfb + x11vnc + a headed Chrome, so a human can sign in once |
+
+Anything else is passed to the CLI, so `docker compose run --rm sif history
+--limit 3` works.
+
+Chrome runs with `cap_drop: ALL` and `no-new-privileges`, measured rather than
+assumed, so no sandbox weakening is needed. It does need `shm_size: 1g`.
+
+Login is the one step that cannot be automated: FreshDirect asks for 2FA and
+sometimes a captcha, and a server has no display. The `login` command makes one
+— an X server in the container, published over VNC to a trusted address — so you
+connect once with a VNC client, sign in, and stop it again. The session then
+lives in the Chrome profile on the data volume for months.
+
+**The Chrome profile is not portable between operating systems.** macOS encrypts
+its cookies with the Keychain, so copying a laptop's profile onto a Linux server
+gets you a profile that is present, intact, and logged out.
+
+A worked deployment of all of this — compose service, reverse proxy, Home
+Assistant wiring, and the Apple Reminders bridge — is in the `homelab` repo at
+`docs/guides/groceries-setup.md`.
+
 ## MCP server
 
 The auth + data pipeline is also available as an [MCP](https://modelcontextprotocol.io)
@@ -219,6 +295,8 @@ Tools exposed:
 | `fd_match`          |            yes           | Resolve free text to a real SKU (alias → heuristic → AI)|
 | `fd_teach_match`    |            no            | Correct a match so it resolves instantly next time      |
 | `fd_profile`        |            no            | Infer (and save) a household dietary profile            |
+| `fd_request`        |            no            | Add a free-text item to the shopping list               |
+| `fd_requests`       |            no            | List shopping-list items waiting for a draft            |
 
 Login stays a manual, interactive step — `uv run fdplanner login` opens a real
 Chrome window for 2FA/captcha, which can't be driven from an MCP tool call.
@@ -251,8 +329,10 @@ app/
   db.py, models.py     # SQLite engine + SQLModel tables (orders, order_items)
   ingest.py            # resumable backfill into the DB
   analytics.py         # spend summary + replenishment cadence (pure + DB-backed)
+  inbox.py             # the shopping list: free-text requests waiting for a draft
   scheduler.py         # autonomous weekly run: build draft -> email digest
   notify/email.py      # weekly email digest (pure render + SMTP send/preview)
+  web/api.py           # token-authenticated JSON API (Home Assistant calls this)
   freshdirect/         # automation adapter, isolated behind an interface
     base.py            #   adapter Protocol + domain models (Order/OrderItem/Address)
     session.py         #   real-Chrome login + persistent-profile reuse

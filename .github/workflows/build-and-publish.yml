@@ -1,0 +1,94 @@
+# Test, build the image, and publish it to GHCR on a version tag.
+# homelab/stack/docker-compose.yml pulls what this pushes, by digest.
+name: build and publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # ghcr.io/erikleon/fresh-direct-tool. GHCR requires a lowercase name and the
+  # repo already is one.
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - run: uv run pytest
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      # A tag that disagrees with pyproject.toml produces an image whose version
+      # is a guess. Catch it before it is published rather than after.
+      - name: Tag and pyproject.toml must agree
+        if: github.ref_type == 'tag'
+        run: |
+          want="v$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then
+            echo "tag $GITHUB_REF_NAME does not match pyproject.toml ($want)" >&2
+            exit 1
+          fi
+
+      # amd64 only. mimir is an Intel box and nothing else runs this image.
+      # The build downloads a full Google Chrome, so it is not a fast one.
+      - name: Build
+        run: docker build -t "$IMAGE:ci" .
+
+      # The image is useless if Chrome cannot start in it, and that failure is
+      # otherwise found on the server after a pull. Run it here, with the same
+      # hardening the compose file applies, so a regression lands on the change
+      # that caused it.
+      - name: Chrome starts with no capabilities
+        run: |
+          docker run --rm --entrypoint python \
+            --security-opt no-new-privileges:true --cap-drop ALL --shm-size 1g \
+            "$IMAGE:ci" -c "
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              ctx = p.chromium.launch_persistent_context(
+                  user_data_dir='/tmp/prof', channel='chrome', headless=True,
+                  args=['--disable-dev-shm-usage'])
+              page = ctx.pages[0] if ctx.pages else ctx.new_page()
+              page.goto('about:blank')
+              ua = page.evaluate('navigator.userAgent')
+              assert 'Linux' in ua, ua
+              ctx.close()
+          print('chrome ok')
+          "
+
+      - name: Log in to GHCR
+        if: github.ref_type == 'tag'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # No :latest tag, on purpose. The compose file names an exact digest, so
+      # `docker compose pull` fetches what was reviewed and nothing else.
+      - name: Push
+        if: github.ref_type == 'tag'
+        run: |
+          sha="sha-$(git rev-parse --short HEAD)"
+          docker tag "$IMAGE:ci" "$IMAGE:$GITHUB_REF_NAME"
+          docker tag "$IMAGE:ci" "$IMAGE:$sha"
+          docker push "$IMAGE:$GITHUB_REF_NAME"
+          docker push "$IMAGE:$sha"
