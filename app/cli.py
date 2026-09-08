@@ -25,9 +25,15 @@ console = Console()
 
 
 @app.command()
-def login() -> None:
+def login(
+    timeout: int = typer.Option(
+        300,
+        help="Seconds to keep the window open if nobody presses Enter "
+             "(raise it when there is no interactive stdin, e.g. in a container)",
+    ),
+) -> None:
     """Open real Chrome, log into FreshDirect, and persist the session profile."""
-    capture_session(get_settings())
+    capture_session(get_settings(), timeout_s=timeout)
 
 
 @app.command()

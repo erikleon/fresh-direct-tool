@@ -1,0 +1,15 @@
+# The build needs pyproject, uv.lock, app/ and docker/ and nothing else.
+.git
+.gitignore
+.venv
+.pytest_cache
+.gstack
+__pycache__
+*.pyc
+.DS_Store
+.env
+data
+docs
+qa-reports
+tests
+uv.lock.bak
