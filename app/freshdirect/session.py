@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import threading
 import urllib.parse
 from contextlib import contextmanager
@@ -41,10 +42,30 @@ _LAUNCH_ARGS = [
     "--no-default-browser-check",
 ]
 
-_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
-)
+# One per platform, because the UA has to agree with everything else the browser
+# says about itself. Chrome sends Sec-CH-UA-Platform from the real operating
+# system and it cannot be overridden from here, so a macOS UA string on a Linux
+# server is a contradiction handed straight to the bot defense this whole
+# real-Chrome approach exists to get past.
+_USER_AGENTS = {
+    "Darwin": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+    ),
+    "Linux": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+    ),
+    "Windows": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def user_agent_for(system: str | None = None) -> str:
+    """The UA matching the host platform, defaulting to macOS for anything odd."""
+    return _USER_AGENTS.get(system or platform.system(), _USER_AGENTS["Darwin"])
 
 
 def _playwright_proxy() -> dict | None:
@@ -96,7 +117,7 @@ def _persistent_context(
             user_data_dir=str(settings.chrome_profile_dir),
             headless=headless,
             args=_LAUNCH_ARGS,
-            user_agent=_USER_AGENT,
+            user_agent=user_agent_for(),
             locale="en-US",
             timezone_id="America/New_York",
             viewport={"width": 1440, "height": 900},

@@ -244,6 +244,34 @@ def fd_profile(use_ai: bool = True) -> dict:
     return profile.model_dump()
 
 
+@mcp.tool()
+def fd_request(item: str) -> dict:
+    """Add a free-text item to the shopping list, for the next draft cart.
+
+    The same inbox the household's shared Apple Reminders list feeds. The item
+    is resolved to a real product when a plan is next built, not now, so this
+    costs nothing and touches no browser.
+    """
+    from app.inbox import add_request
+
+    row, created = add_request(item, source="mcp", settings=get_settings())
+    return {"id": row.id, "item": row.text, "created": created}
+
+
+@mcp.tool()
+def fd_requests() -> dict:
+    """List shopping-list items waiting for a draft cart."""
+    from app.inbox import list_open
+
+    rows = list_open(get_settings())
+    return {
+        "count": len(rows),
+        "requests": [
+            {"id": r.id, "item": r.text, "source": r.source} for r in rows
+        ],
+    }
+
+
 def main() -> None:
     mcp.run()
 
