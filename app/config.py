@@ -7,12 +7,15 @@ profile (see ``chrome_profile_dir``), not here.
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
 from platformdirs import user_data_dir
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 # Local-first, but the state dir must NOT be derived from this file's location:
 # once the package is installed (uv tool / uvx), app/ lives in site-packages and
@@ -59,11 +62,27 @@ class Settings(BaseSettings):
 
     # --- AI (used from Phase 2) -----------------------------------------
     anthropic_api_key: str | None = None
+    anthropic_api_key_file: Path | None = None
+    """Read the key from a file instead. Takes precedence over the variable.
+
+    For running under Docker. ``GET /containers/{id}/json`` returns
+    ``Config.Env``, so anything permitted to inspect a container reads every
+    secret passed as an environment variable. A file is not handed out that way.
+    """
     planner_model: str = "claude-opus-4-8"
 
     # --- Review surface (Phase 3) ---------------------------------------
     dashboard_url: str = "http://127.0.0.1:8000"
     """Base URL the email digest deep-links to (review/approve the draft)."""
+
+    api_token_file: Path | None = None
+    """Bearer token for /api/*, read from a file. Unset leaves the API closed.
+
+    The HTML dashboard is unauthenticated and always has been: it is a
+    local-first, single-household app. The JSON API is different, because it
+    exists for Home Assistant to call across the box, so it carries a token.
+    File rather than variable for the same reason as the Anthropic key above.
+    """
 
     # --- Email digest (SMTP; all optional) ------------------------------
     smtp_host: str | None = None
@@ -97,6 +116,16 @@ class Settings(BaseSettings):
         return bool(self.smtp_host and self.digest_to)
 
     @property
+    def resolved_anthropic_api_key(self) -> str | None:
+        """The Anthropic key, from the file if one is configured."""
+        return _read_secret_file(self.anthropic_api_key_file) or self.anthropic_api_key
+
+    @property
+    def api_token(self) -> str | None:
+        """The bearer token for /api/*, or None when the API is closed."""
+        return _read_secret_file(self.api_token_file)
+
+    @property
     def digests_dir(self) -> Path:
         return self.data_dir / "digests"
 
@@ -111,6 +140,26 @@ class Settings(BaseSettings):
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _read_secret_file(path: Path | None) -> str | None:
+    """Read a secret from a file, or None if there is no usable file.
+
+    Trailing whitespace is stripped, because a file written with an editor
+    almost always ends in a newline and a newline inside a bearer token turns
+    into a 401 that looks like a wrong token rather than a stray byte.
+
+    A missing or unreadable file is not fatal here. The caller decides what an
+    absent secret means: no key disables the AI paths, no token closes the API.
+    """
+    if path is None:
+        return None
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        logger.warning("Cannot read secret file %s: %s", path, exc, exc_info=True)
+        return None
+    return value or None
 
 
 @lru_cache

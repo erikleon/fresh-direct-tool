@@ -25,6 +25,7 @@ from app.plans import (
     set_quantity,
 )
 from app.web import jobs
+from app.web.api import router as api_router
 
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -33,10 +34,14 @@ templates.env.filters["cents"] = lambda c: f"{from_cents(c)}" if c is not None e
 
 app = FastAPI(title="FreshDirect Weekly Planner")
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+# Token-authenticated JSON routes for Home Assistant. The HTML routes below stay
+# unauthenticated; see app/web/api.py for why the two halves differ.
+app.include_router(api_router)
 
 
 def _render(request: Request, plan):
     from app.delivery import load_addresses
+    from app.inbox import list_open
 
     return templates.TemplateResponse(
         request=request,
@@ -46,6 +51,10 @@ def _render(request: Request, plan):
             "job": jobs.get_state(),
             "handoff": jobs.handoff_state(),
             "addresses": load_addresses(),
+            # Asked for but not yet on a draft. Either nobody has built a plan
+            # since they were added, or the catalog had no answer for them, and
+            # the second case is invisible anywhere else.
+            "open_requests": list_open(),
             "settings": get_settings(),
         },
     )
@@ -107,6 +116,24 @@ def edit_delivery(
     tip_val = float(tip) if tip else None
     set_delivery(plan_id, address=address, delivery_date=ddate, tip_dollars=tip_val)
     return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+
+
+@app.post("/requests")
+def add_request_form(text: str = Form(...), source: str = Form("manual")):
+    """Add a request from the dashboard, for whoever is already looking at it."""
+    from app.inbox import add_request
+
+    if text.strip():
+        add_request(text, source=source)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/requests/{request_id}/drop")
+def drop_request_form(request_id: int):
+    from app.inbox import drop
+
+    drop(request_id)
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/plan/{plan_id}/approve")
