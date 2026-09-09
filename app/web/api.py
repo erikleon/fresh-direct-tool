@@ -15,11 +15,15 @@ refuses everything rather than opening up.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
 from app.plans import get_plan, latest_plan_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -43,7 +47,15 @@ def require_token(
             "No API token is configured; set FDPLANNER_API_TOKEN_FILE.",
         )
 
+    # Surrounding whitespace is stripped from what the caller presents, not just
+    # from the token file. No token contains a leading or trailing space, so
+    # tolerating them costs nothing and removes a whole class of paste error.
+    # The one that actually happened: an iOS Shortcut header built as "Bearer "
+    # plus a variable, giving two spaces, so the token arrived with a leading
+    # space and was refused as wrong. Invisible in the editor, and the refusal
+    # says "bad token", which sends you to check the token.
     scheme, _, presented = (authorization or "").partition(" ")
+    presented = presented.strip()
     if scheme.lower() != "bearer" or not presented:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
@@ -51,6 +63,13 @@ def require_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not _secrets.compare_digest(presented, expected):
+        # Lengths only, never the values, and only to the server's own log: a
+        # length mismatch is almost always a truncated paste, and a match with a
+        # refusal is the wrong token rather than a mangled one.
+        logger.warning(
+            "Rejected an API token: presented %d characters, expected %d.",
+            len(presented), len(expected),
+        )
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "Bad token.",
