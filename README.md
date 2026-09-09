@@ -236,6 +236,18 @@ sometimes a captcha, and a server has no display. The `login` command makes one
 connect once with a VNC client, sign in, and stop it again. The session then
 lives in the Chrome profile on the data volume for months.
 
+| Variable | Default | Why you would change it |
+| --- | --- | --- |
+| `VNC_PASSWORD` | generated, printed at startup | A server offering only "None" authentication is refused by macOS Screen Sharing, which retries rather than saying so |
+| `VNC_GEOMETRY` | `1280x800x16` | Colour depth is what a remote X session actually feels. Raise it on a fast link |
+| `VNC_LISTEN` | `0.0.0.0` | The address inside the *container's* namespace. Scope exposure with the port publish, not this |
+
+**A saved profile is not proof of a login.** FreshDirect sets `FDUser` and
+`FD_TOKEN` for anonymous visitors too, so a profile full of cookies can still be
+a guest session — the account page renders, greets you as `Hi, .` and reports
+"You don't have past orders". Check with `fdplanner history --limit 3`, which
+either prints real orders or does not.
+
 **The Chrome profile is not portable between operating systems.** macOS encrypts
 its cookies with the Keychain, so copying a laptop's profile onto a Linux server
 gets you a profile that is present, intact, and logged out.

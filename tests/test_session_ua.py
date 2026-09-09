@@ -30,3 +30,47 @@ def test_the_version_in_the_ua_is_the_installed_chrome_version():
 def test_no_platform_advertises_headless():
     for system in ("Darwin", "Linux", "Windows"):
         assert "Headless" not in user_agent_for(system)
+
+
+# --------------------------------------------------------------------------- #
+# Launch failures and profile locks
+# --------------------------------------------------------------------------- #
+
+
+def test_only_a_missing_browser_falls_back_to_bundled_chromium():
+    """A locked profile is not a missing browser and must not be reported as one.
+
+    The fallback used to swallow every launch error, so a profile another
+    container still held surfaced as Playwright's "run `playwright install`"
+    banner — pointing at a browser that was installed and working.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    from app.freshdirect.session import _is_missing_browser
+
+    missing = PlaywrightError(
+        "Executable doesn't exist at /root/.cache/ms-playwright/chromium/chrome"
+    )
+    locked = PlaywrightError(
+        "Timeout 180000ms exceeded.\n  - [err] The profile appears to be in use "
+        "by another Google Chrome process (40) on another computer (5ebff2905cf8)."
+    )
+    assert _is_missing_browser(missing) is True
+    assert _is_missing_browser(locked) is False
+
+
+def test_clear_stale_profile_lock_removes_a_dangling_symlink(tmp_path):
+    """The lock is a symlink to a host that is gone, so it never resolves."""
+    from app.config import Settings
+    from app.freshdirect.session import clear_stale_profile_lock
+
+    settings = Settings(data_dir=tmp_path)
+    profile = settings.chrome_profile_dir
+    profile.mkdir(parents=True)
+    (profile / "SingletonLock").symlink_to("5ebff2905cf8-40")  # target never exists
+    (profile / "Default").mkdir()
+
+    assert clear_stale_profile_lock(settings) is True
+    assert not (profile / "SingletonLock").is_symlink()
+    assert (profile / "Default").exists()  # the profile itself is untouched
+    assert clear_stale_profile_lock(settings) is False  # idempotent
