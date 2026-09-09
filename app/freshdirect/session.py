@@ -151,6 +151,56 @@ def _playwright_proxy() -> dict | None:
         return None
 
 
+def _is_missing_browser(exc: BaseException) -> bool:
+    """True when the launch failed because the browser is not installed.
+
+    Playwright has no error type for this, so the message is all there is. The
+    strings below are what it prints when an executable or a channel cannot be
+    found; anything else is a browser that exists and did not start.
+    """
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "executable doesn't exist",
+            "executable does not exist",
+            "looks like playwright was just installed",
+            "please run the following command to download new browsers",
+            "chrome distribution",
+            "is not found at",
+        )
+    )
+
+
+def clear_stale_profile_lock(settings: Settings) -> bool:
+    """Remove a Chrome singleton lock left behind by a container that is gone.
+
+    Chrome writes SingletonLock as a symlink naming the host and pid holding the
+    profile, and removes it on a clean exit. A container killed mid-session
+    leaves it, and the next start refuses the profile with "appears to be in use
+    by another Google Chrome process on another computer" — naming a hostname
+    that no longer exists anywhere.
+
+    Only safe to call when nothing else is using the profile, which for a
+    single-purpose container is true at startup. Returns True if it removed one.
+    """
+    profile = settings.chrome_profile_dir
+    removed = False
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        path = profile / name
+        # A dangling symlink fails exists() but is still what blocks Chrome, so
+        # test the link itself rather than its target.
+        if path.is_symlink() or path.exists():
+            try:
+                path.unlink()
+                removed = True
+            except OSError as exc:
+                logger.warning("Could not remove %s: %s", path, exc, exc_info=True)
+    if removed:
+        logger.info("Removed a stale Chrome profile lock from %s", profile)
+    return removed
+
+
 def has_session(settings: Settings) -> bool:
     """True once a profile has been created by a prior login."""
     profile = settings.chrome_profile_dir
@@ -181,10 +231,24 @@ def _persistent_context(
             context = p.chromium.launch_persistent_context(
                 channel=settings.browser_channel, **kwargs
             )
-        except PlaywrightError:
-            # Real Chrome not found under the configured channel — fall back to
-            # the bundled Chromium (more likely to be blocked, but better than
-            # failing outright).
+        except PlaywrightError as exc:
+            # Fall back to bundled Chromium ONLY when real Chrome is genuinely
+            # absent. Anything else — a locked profile, a crash, a timeout — has
+            # to surface as itself.
+            #
+            # This used to catch every PlaywrightError and retry. When the
+            # second launch failed too, what reached the user was Playwright's
+            # "run `playwright install`" banner, which points at a missing
+            # browser. Measured against a profile another container still held:
+            # Chrome was installed and working, the profile was locked, and the
+            # error said neither.
+            if not _is_missing_browser(exc):
+                raise
+            logger.warning(
+                "Chrome channel %r not found; falling back to bundled Chromium, "
+                "which this site is more likely to block. Original error: %s",
+                settings.browser_channel, exc,
+            )
             context = p.chromium.launch_persistent_context(**kwargs)
 
         context.add_init_script(_STEALTH_JS)
@@ -202,7 +266,13 @@ def capture_session(settings: Settings, timeout_s: int = 300) -> None:
     Completion is signalled by pressing Enter; if Enter never arrives (e.g. no
     interactive stdin) we stop after ``timeout_s`` so the call can't hang. The
     session lives in the persistent profile — there is nothing else to save.
+
+    A stale lock from a previous run is cleared first. This is the one command
+    where that is unambiguously safe: it is interactive, it is the only thing
+    using the profile, and the alternative is a refusal that names a machine
+    that no longer exists.
     """
+    clear_stale_profile_lock(settings)
     with _persistent_context(settings, headless=False) as (_context, page):
         try:
             page.goto(settings.fd_base_url, timeout=settings.nav_timeout_ms)
