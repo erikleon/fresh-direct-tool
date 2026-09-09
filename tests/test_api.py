@@ -64,9 +64,28 @@ def test_api_refuses_without_the_right_bearer_token(client, headers):
     assert client.get("/api/requests", headers=headers).status_code == 401
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        f"Bearer {TOKEN}",
+        f"Bearer  {TOKEN}",       # two spaces: an iOS Shortcut header built as
+                                  # "Bearer " plus a variable
+        f"Bearer {TOKEN} ",
+        f"Bearer {TOKEN}\n",
+        f"bearer {TOKEN}",        # scheme is case-insensitive per RFC 7235
+    ],
+)
+def test_surrounding_whitespace_is_not_part_of_the_token(client, header):
+    """Whitespace a paste introduced is invisible, and the refusal blames the token."""
+    assert client.get("/api/requests", headers={"Authorization": header}).status_code == 200
+
+
 def test_a_trailing_newline_in_the_token_file_is_not_part_of_the_token(client):
+    """The fixture writes the file with a newline, as any editor would."""
     assert client.get("/api/requests", headers=_auth()).status_code == 200
-    assert client.get("/api/requests", headers=_auth(TOKEN + "\n")).status_code == 401
+    # A token that differs by more than whitespace is still refused. Whitespace
+    # itself is tolerated on both sides now; see the parametrised test above.
+    assert client.get("/api/requests", headers=_auth(TOKEN + "x")).status_code == 401
 
 
 def test_no_token_file_closes_the_api_rather_than_opening_it(tmp_path, monkeypatch):

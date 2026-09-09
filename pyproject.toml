@@ -1,6 +1,6 @@
 [project]
 name = "freshdirect-planner"
-version = "0.2.1"
+version = "0.2.2"
 description = "AI agent + web app that plans a household's weekly FreshDirect grocery order"
 license = "MIT"
 license-files = ["LICENSE"]
