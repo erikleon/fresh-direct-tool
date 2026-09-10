@@ -18,7 +18,9 @@ secrets/
 storage_state*.json
 storage_state*.enc
 
-# Playwright
+# Playwright — see tests/browser/README.md
+node_modules/
+package-lock.json
 playwright-report/
 test-results/
 
