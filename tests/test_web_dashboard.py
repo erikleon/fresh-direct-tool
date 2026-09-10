@@ -1,12 +1,17 @@
-"""The review dashboard's markup contract.
+"""The review dashboard's markup contract and its redirect-after-post targets.
 
-The phone layout and ``live.js`` both lean on things that are invisible in a
-rendered page: region ids, per-row ids, ``data-live`` forms, and the ARIA roles
-that stand in for table semantics once CSS overrides ``display`` on the cart.
-A server-side refactor could drop any of them without anything looking wrong.
+Two things this file protects, both invisible until somebody opens the page on
+a phone:
 
-The geometry itself is checked in a browser (see DESIGN.md); this file covers
-the parts that live in the template and the stylesheet.
+* Editing one line sends the browser back to ``#line-<id>``. Without the
+  fragment a plain redirect-after-post lands at scroll-top, so acting on the
+  twelfth row throws you back to the header.
+* The template still carries the hooks the phone layout and ``live.js`` need —
+  region ids, per-row ids, ``data-live`` forms, and the ARIA roles that stand in
+  for table semantics once CSS overrides ``display`` on the cart.
+
+The geometry itself is checked in a browser (see DESIGN.md); these are the
+parts a server-side refactor could quietly drop.
 """
 
 import re
@@ -82,6 +87,72 @@ def _plan_and_lines(client):
     line_ids = [int(m) for m in re.findall(r'<tr id="line-(\d+)"', html)]
     assert line_ids, "the draft cart rendered no rows"
     return plan_id, line_ids
+
+
+# --------------------------------------------------------------------------- #
+# Redirect-after-post lands on the row you edited
+# --------------------------------------------------------------------------- #
+
+
+def test_toggling_a_line_redirects_to_that_row(client):
+    plan_id, line_ids = _plan_and_lines(client)
+    line_id = line_ids[-1]
+    res = client.post(
+        f"/plan/{plan_id}/line/{line_id}/toggle",
+        data={"included": "off"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert res.headers["location"] == f"/plan/{plan_id}#line-{line_id}"
+
+
+def test_setting_a_quantity_redirects_to_that_row(client):
+    plan_id, line_ids = _plan_and_lines(client)
+    line_id = line_ids[0]
+    res = client.post(
+        f"/plan/{plan_id}/line/{line_id}/qty",
+        data={"quantity": "3"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert res.headers["location"] == f"/plan/{plan_id}#line-{line_id}"
+
+
+def test_swapping_a_product_redirects_to_that_row(client):
+    plan_id, line_ids = _plan_and_lines(client)
+    line_id = line_ids[0]
+    res = client.post(
+        f"/plan/{plan_id}/line/{line_id}/select",
+        data={"sku": "sku1"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert res.headers["location"] == f"/plan/{plan_id}#line-{line_id}"
+
+
+def test_the_anchor_names_a_row_that_exists_on_the_page(client):
+    """A fragment pointing at nothing is the same as no fragment at all."""
+    plan_id, line_ids = _plan_and_lines(client)
+    line_id = line_ids[-1]
+    location = client.post(
+        f"/plan/{plan_id}/line/{line_id}/toggle",
+        data={"included": "off"},
+        follow_redirects=False,
+    ).headers["location"]
+    anchor = location.split("#", 1)[1]
+    assert f'<tr id="{anchor}"' in client.get(f"/plan/{plan_id}").text
+
+
+def test_a_line_edit_still_applies_when_followed(client):
+    """The fragment must not have broken the redirect the edit rides on."""
+    plan_id, line_ids = _plan_and_lines(client)
+    line_id = line_ids[0]
+    res = client.post(
+        f"/plan/{plan_id}/line/{line_id}/toggle", data={"included": "off"}
+    )
+    assert res.status_code == 200
+    row = re.search(rf'<tr id="line-{line_id}"[^>]*class="([^"]*)"', res.text).group(1)
+    assert "dropped" in row
 
 
 # --------------------------------------------------------------------------- #

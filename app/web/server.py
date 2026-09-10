@@ -3,6 +3,12 @@
 Server-rendered (Jinja) with plain form posts and redirect-after-post, so it
 works without any client JS; the only dynamic bit is a meta-refresh while a plan
 generates in the background.
+
+Line edits redirect back to ``#line-<id>`` rather than the top of the page. A
+plain redirect-after-post lands the browser at scroll-top, which on a phone means
+tapping the twelfth row throws you back to the header. ``static/live.js``
+enhances the same forms into in-place updates where JS is available, but this
+fragment is what makes the no-JS path usable on its own.
 """
 
 from __future__ import annotations
@@ -81,22 +87,30 @@ def view_plan(request: Request, plan_id: int):
     return _render(request, get_plan(plan_id))
 
 
+def _line_anchor(plan_id: int, line_id: int) -> str:
+    """Where to send the browser after editing one line: back to that line.
+
+    ``scroll-margin-top`` on the row keeps it clear of the top of the viewport.
+    """
+    return f"/plan/{plan_id}#line-{line_id}"
+
+
 @app.post("/plan/{plan_id}/line/{line_id}/qty")
 def edit_qty(plan_id: int, line_id: int, quantity: float = Form(...)):
     set_quantity(plan_id, line_id, quantity)
-    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+    return RedirectResponse(_line_anchor(plan_id, line_id), status_code=303)
 
 
 @app.post("/plan/{plan_id}/line/{line_id}/toggle")
 def toggle_line(plan_id: int, line_id: int, included: str = Form("")):
     set_included(plan_id, line_id, included == "on")
-    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+    return RedirectResponse(_line_anchor(plan_id, line_id), status_code=303)
 
 
 @app.post("/plan/{plan_id}/line/{line_id}/select")
 def select_line(plan_id: int, line_id: int, sku: str = Form(...)):
     select_alternative(plan_id, line_id, sku, learn=True)
-    return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+    return RedirectResponse(_line_anchor(plan_id, line_id), status_code=303)
 
 
 @app.post("/plan/{plan_id}/delivery")
