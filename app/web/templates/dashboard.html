@@ -72,6 +72,34 @@
       Plan my week
     </button>
   </form>
+
+  {% if plan %}
+    {# Starting over belongs next to generating, not next to Approve: this is the
+       one control on the page that destroys work, so it stays away from the one
+       that commits it. Folded shut by default, and <details> means the confirm
+       step costs no JS. #}
+    <details class="discard">
+      <summary>Discard this draft and start over</summary>
+      <div class="discard-body">
+        <p class="muted small">
+          Deletes the {{ plan.lines | length }}-line draft for week of {{ plan.week_of }}.
+          {% if plan.status == 'handed_off' %}
+            Items already sent to FreshDirect stay in your real cart — this only
+            clears the local record.
+          {% else %}
+            Anything from the shopping list goes back to waiting, so you keep the asks.
+          {% endif %}
+        </p>
+        <form method="post" action="/plan/{{ plan.id }}/discard" class="discard-form">
+          <label class="confirm">
+            <input type="checkbox" name="confirm" value="on" required>
+            Yes, discard this draft.
+          </label>
+          <button class="danger">Discard draft</button>
+        </form>
+      </div>
+    </details>
+  {% endif %}
 </section>
 
 {% if not plan %}

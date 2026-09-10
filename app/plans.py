@@ -16,6 +16,8 @@ from app.freshdirect.base import Product
 from app.models import PlanLineRow, PlanRow
 from app.money import to_cents
 
+from sqlmodel import select
+
 
 def _product_dict(p: Product) -> dict:
     return {
@@ -113,8 +115,6 @@ def get_plan(plan_id: int, settings: Settings | None = None) -> PlanRow | None:
 
 
 def latest_plan_id(settings: Settings | None = None) -> int | None:
-    from sqlmodel import select
-
     init_db(settings or get_settings())
     with session_scope(settings or get_settings()) as db:
         row = db.exec(select(PlanRow.id).order_by(PlanRow.created_at.desc())).first()
@@ -204,6 +204,38 @@ def approve(plan_id: int, settings: Settings | None = None) -> PlanRow | None:
         plan.lines
         db.expunge_all()
         return plan
+
+
+def discard(plan_id: int, settings: Settings | None = None) -> bool:
+    """Delete a plan and its lines. Returns False if there was no such plan.
+
+    Anything the household asked for that landed on this plan goes back to
+    waiting, so discarding a draft loses the draft and not the asks — the
+    requests are the part nobody can reconstruct. A handed-off plan is the one
+    exception: those items are already in the real FreshDirect cart, so the
+    asks were met and reopening them would put them on the next draft twice.
+    """
+    from app.models import RequestRow
+
+    settings = settings or get_settings()
+    with session_scope(settings) as db:
+        plan = db.get(PlanRow, plan_id)
+        if plan is None:
+            return False
+        fulfilled = plan.status == "handed_off"
+        requests = db.exec(
+            select(RequestRow).where(RequestRow.plan_id == plan_id)
+        ).all()
+        for row in requests:
+            if fulfilled:
+                row.plan_id = None  # keep it closed, just unhook the dead plan
+            else:
+                row.status = "open"
+                row.plan_id = None
+            db.add(row)
+        db.delete(plan)  # lines cascade; see PlanRow.lines
+        db.commit()
+        return True
 
 
 def _mutate_line(plan_id: int, line_id: int, fn, settings: Settings | None) -> None:

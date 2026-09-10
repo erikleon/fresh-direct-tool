@@ -24,6 +24,7 @@ from app.config import get_settings
 from app.money import dollars, from_cents
 from app.plans import (
     approve,
+    discard,
     get_plan,
     latest_plan_id,
     select_alternative,
@@ -154,6 +155,18 @@ def drop_request_form(request_id: int):
 def approve_plan(plan_id: int):
     approve(plan_id)
     return RedirectResponse(f"/plan/{plan_id}", status_code=303)
+
+
+@app.post("/plan/{plan_id}/discard")
+def discard_plan(plan_id: int, confirm: str = Form("")):
+    """Throw the draft away and go back to an empty dashboard.
+
+    Guarded by the same explicit confirm the hand-off uses, because this is the
+    one action here that destroys work rather than changing it.
+    """
+    if confirm == "on" and discard(plan_id):
+        jobs.forget_plan(plan_id)
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/plan/{plan_id}/handoff")

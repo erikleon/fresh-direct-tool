@@ -44,6 +44,21 @@ def handoff_state() -> HandoffState:
     return _handoff
 
 
+def forget_plan(plan_id: int) -> None:
+    """Drop a discarded plan from the job state.
+
+    ``home()`` prefers the last generated plan id over the newest stored one, so
+    without this the dashboard would keep pointing at a plan that no longer
+    exists instead of falling back to whatever is actually there.
+    """
+    global _state, _handoff
+    with _lock:
+        if _state.plan_id == plan_id:
+            _state = JobState()
+        if _handoff.plan_id == plan_id:
+            _handoff = HandoffState()
+
+
 def is_running() -> bool:
     return _state.status == "running" or _handoff.status == "running"
 

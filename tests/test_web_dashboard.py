@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import select as _select
 
 from app.config import Settings
 
@@ -79,6 +80,13 @@ def client(tmp_path, monkeypatch):
         yield TestClient(server.app)
     finally:
         server.app.dependency_overrides.clear()
+
+
+def _settings_of(client):
+    """The throwaway Settings the fixture wired into the app."""
+    from app.web import server
+
+    return server.get_settings()
 
 
 def _plan_and_lines(client):
@@ -231,3 +239,133 @@ def test_inputs_are_16px_on_phones():
     css = (STATIC / "style.css").read_text()
     assert "--fs-md: 16px" in css
     assert re.search(r"input\[type=number\][^{]*\{[^}]*font-size:\s*var\(--fs-md\)", css, re.S)
+
+
+# --------------------------------------------------------------------------- #
+# Discarding a draft
+# --------------------------------------------------------------------------- #
+
+
+def test_discarding_removes_the_plan_and_its_lines(client):
+    from app.models import PlanLineRow, PlanRow
+
+    plan_id, _ = _plan_and_lines(client)
+    res = client.post(f"/plan/{plan_id}/discard", data={"confirm": "on"})
+    assert res.status_code == 200
+
+    settings = _settings_of(client)
+    from app.db import session_scope
+
+    with session_scope(settings) as db:
+        assert db.get(PlanRow, plan_id) is None
+        left = db.exec(_select(PlanLineRow).where(PlanLineRow.plan_id == plan_id)).all()
+        assert left == [], "plan lines outlived the plan"
+
+
+def test_discarding_needs_the_confirm_box(client):
+    """It is the one action here that destroys work, so a stray post must not."""
+    from app.models import PlanRow
+
+    plan_id, _ = _plan_and_lines(client)
+    for data in ({}, {"confirm": ""}, {"confirm": "yes"}):
+        client.post(f"/plan/{plan_id}/discard", data=data)
+
+    from app.db import session_scope
+
+    with session_scope(_settings_of(client)) as db:
+        assert db.get(PlanRow, plan_id) is not None
+
+
+def test_discarding_a_draft_puts_its_requests_back_in_the_queue(client):
+    """The draft is reproducible; what somebody asked for is not."""
+    from app.db import session_scope
+    from app.inbox import mark_planned
+    from app.models import RequestRow
+
+    plan_id, _ = _plan_and_lines(client)
+    settings = _settings_of(client)
+    with session_scope(settings) as db:
+        req = RequestRow(text="oat milk", source="reminders", status="open")
+        db.add(req)
+        db.commit()
+        db.refresh(req)
+        req_id = req.id
+    mark_planned([req_id], plan_id, settings)
+
+    client.post(f"/plan/{plan_id}/discard", data={"confirm": "on"})
+
+    with session_scope(settings) as db:
+        row = db.get(RequestRow, req_id)
+        assert row.status == "open"
+        assert row.plan_id is None
+    assert "oat milk" in client.get("/").text
+
+
+def test_discarding_a_handed_off_plan_does_not_reopen_its_requests(client):
+    """Those items are in the real cart already; reopening would reorder them."""
+    from app.db import session_scope
+    from app.inbox import mark_planned
+    from app.models import PlanRow, RequestRow
+
+    plan_id, _ = _plan_and_lines(client)
+    settings = _settings_of(client)
+    with session_scope(settings) as db:
+        req = RequestRow(text="paper towels", source="reminders", status="open")
+        db.add(req)
+        plan = db.get(PlanRow, plan_id)
+        plan.status = "handed_off"
+        db.add(plan)
+        db.commit()
+        db.refresh(req)
+        req_id = req.id
+    mark_planned([req_id], plan_id, settings)
+
+    client.post(f"/plan/{plan_id}/discard", data={"confirm": "on"})
+
+    with session_scope(settings) as db:
+        row = db.get(RequestRow, req_id)
+        assert row.status == "planned"
+        assert row.plan_id is None, "the request still points at a deleted plan"
+
+
+def test_the_dashboard_is_empty_after_discarding_the_only_plan(client):
+    plan_id, _ = _plan_and_lines(client)
+    html = client.post(f"/plan/{plan_id}/discard", data={"confirm": "on"}).text
+    assert "No draft plan yet" in html
+    assert '<tr id="line-' not in html
+
+
+def test_discarding_falls_back_to_the_remaining_plan(client):
+    """home() prefers the last generated id; a stale one must not blank the page."""
+    from app.db import session_scope
+    from app.models import PlanLineRow, PlanRow
+    from app.web import jobs
+
+    plan_id, _ = _plan_and_lines(client)
+    settings = _settings_of(client)
+    with session_scope(settings) as db:
+        other = PlanRow(week_of=date(2026, 9, 1), status="draft")
+        db.add(other)
+        db.commit()
+        db.refresh(other)
+        db.add(PlanLineRow(plan_id=other.id, need="Rye Bread", selected_name="Rye Bread",
+                           selected_price_cents=500, alternatives=[]))
+        db.commit()
+        other_id = other.id
+    # Pretend the discarded plan was the one this session generated.
+    jobs.get_state().plan_id = plan_id
+    jobs.get_state().status = "done"
+    try:
+        html = client.post(f"/plan/{plan_id}/discard", data={"confirm": "on"}).text
+        assert "Rye Bread" in html, "fell through to an empty page instead of the surviving plan"
+    finally:
+        jobs.forget_plan(other_id)
+        jobs.forget_plan(plan_id)
+
+
+def test_the_discard_control_is_offered_only_with_a_plan(client):
+    assert "/discard" in client.get("/").text
+    plan_id, _ = _plan_and_lines(client)
+    assert "/discard" not in client.post(
+        f"/plan/{plan_id}/discard", data={"confirm": "on"}
+    ).text

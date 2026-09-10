@@ -310,6 +310,32 @@ code.wrap-anywhere { overflow-wrap: anywhere; }
 .sticky-total { font-size: var(--fs-md); font-weight: 700; color: var(--ink); }
 .sticky-total .of { font-weight: 400; color: var(--muted); font-size: var(--fs-xs); }
 
+/* ---- Discard ----
+ * Deliberately quiet: a summary that reads as a link, and a button that is
+ * outlined rather than filled, so it never competes with Approve for a thumb.
+ */
+.discard { margin-top: var(--sp-md); border-top: 1px solid var(--hairline); padding-top: var(--sp-ms); }
+.discard > summary {
+  display: flex; align-items: center; min-height: var(--tap);
+  font-size: var(--fs-xs); color: var(--muted); cursor: pointer;
+  list-style: none; user-select: none;
+}
+.discard > summary::-webkit-details-marker { display: none; }
+.discard > summary::before { content: "▸"; margin-right: var(--sp-sm); font-size: 10px; }
+.discard[open] > summary::before { content: "▾"; }
+.discard > summary:hover { color: var(--ink); }
+.discard-body { padding-bottom: var(--sp-sm); }
+.discard-body p { margin: 0 0 var(--sp-ms); }
+.discard-form { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-ms); }
+.danger {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--tap); padding: 0 var(--sp-md);
+  background: var(--surface); color: var(--over);
+  border: 1.5px solid currentColor; border-radius: var(--r-pill);
+  font-weight: 600;
+}
+.danger:active { background: #fde8e8; }
+
 .banner {
   display: flex; gap: var(--sp-ms); align-items: center;
   padding: var(--sp-ms) var(--sp-md); border-radius: var(--r-lg); margin-bottom: var(--sp-md);
@@ -403,6 +429,10 @@ tr[id], section[id] { scroll-margin-top: var(--sp-lg); }
     background: none; backdrop-filter: none; border-top: 0;
   }
   .actions > form { order: 0; }
+
+  .discard > summary { min-height: 0; padding: var(--sp-xs) 0; }
+  .discard-form { flex-direction: row; align-items: center; }
+  .danger { min-height: 0; padding: var(--sp-sm) var(--sp-md); }
   .actions-meta { order: 0; font-size: var(--fs-xs); }
   .sticky-total { display: none; }
 }

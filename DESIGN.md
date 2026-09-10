@@ -204,5 +204,7 @@ combine `min-width: auto` with a min-content width wider than the viewport.
 | 2026-09-10 | `live.js` re-parses the full page rather than a fragment route | One render path; a fragment endpoint is a second source of truth that drifts |
 | 2026-09-10 | 44px minimum tap targets | The include/exclude control was 25×22 |
 | 2026-09-10 | 16px form controls below 800px | Anything smaller makes iOS Safari zoom on focus |
-| 2026-09-10 | `min-width: 0` on selects, cart cells and the line forms | A select's min-content width is its widest option (556px here); WebKit honours that floor and Chromium does not, so iOS Safari zoomed the whole page out to fit |
 | 2026-09-10 | Running total pinned beside Approve on phones | The budget bar scrolls away after three rows; the number you are deciding against should stay put |
+| 2026-09-10 | `min-width: 0` on selects, cart cells and the line forms | A select's min-content width is its widest option (556px here); WebKit honours that floor and Chromium does not, so iOS Safari zoomed the whole page out to fit |
+| 2026-09-10 | Discard lives in the "Plan my week" card, not the actions bar | Starting over belongs with generating, and the one control that destroys work should not sit beside the one that commits it |
+| 2026-09-10 | Discarding a draft reopens its shopping-list requests | The draft is reproducible; what somebody asked for is not. A handed-off plan is excluded — those asks were met |

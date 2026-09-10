@@ -18,10 +18,11 @@ FDPLANNER_DATA_DIR=/tmp/fdp-preview-data \
 node tests/browser/no-jump.mjs      # the four no-jump rules, JS and no-JS paths
 node tests/browser/widths.mjs       # horizontal overflow, 320px through 1280px
 node tests/browser/min-content.mjs  # overflow a stricter engine would show
+node tests/browser/discard.mjs      # the discard disclosure and its confirm gate
 ```
 
-Re-seed between scripts that mutate the plan, and restart the server after
-re-seeding.
+Re-seed between scripts that mutate the plan (`no-jump.mjs`, `discard.mjs`), and
+restart the server after re-seeding.
 
 `no-jump.mjs` asserts that toggling a line leaves `scrollY`, the row's viewport
 position, the row's height and the document height all unchanged; that the
@@ -42,5 +43,8 @@ intrinsic width and hides it; WebKit honours it, so the page overflowed on iOS
 while every Chromium check passed. The rule the script enforces: no in-flow
 flex/grid child may have `min-width: auto` and a min-content width wider than
 the viewport.
+
+`discard.mjs` checks the disclosure starts folded, that the `required` checkbox
+actually blocks the post, and that discarding leaves the shopping list intact.
 
 All exit non-zero on failure.
