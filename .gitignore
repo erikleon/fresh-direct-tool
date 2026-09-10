@@ -19,7 +19,7 @@ storage_state*.json
 storage_state*.enc
 
 # Playwright — see tests/browser/README.md
-node_modules/
+node_modules
 package-lock.json
 playwright-report/
 test-results/

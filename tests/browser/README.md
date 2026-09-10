@@ -15,9 +15,13 @@ uv run python tests/browser/seed_preview.py
 FDPLANNER_DATA_DIR=/tmp/fdp-preview-data \
   uv run uvicorn app.web.server:app --port 8899 &
 
-node tests/browser/no-jump.mjs   # the four no-jump rules, JS and no-JS paths
-node tests/browser/widths.mjs    # horizontal overflow, 320px through 1280px
+node tests/browser/no-jump.mjs      # the four no-jump rules, JS and no-JS paths
+node tests/browser/widths.mjs       # horizontal overflow, 320px through 1280px
+node tests/browser/min-content.mjs  # overflow a stricter engine would show
 ```
+
+Re-seed between scripts that mutate the plan, and restart the server after
+re-seeding.
 
 `no-jump.mjs` asserts that toggling a line leaves `scrollY`, the row's viewport
 position, the row's height and the document height all unchanged; that the
@@ -29,4 +33,14 @@ buttons disappear only when JS is live; and that the no-JS redirect lands on
 that the cart flips from stacked rows to a table exactly at the 800px
 breakpoint.
 
-Both exit non-zero on failure.
+`min-content.mjs` covers what `widths.mjs` structurally cannot. `widths.mjs`
+measures what Chromium *renders*; this measures what each element *demands*. A
+flex or grid child defaults to `min-width: auto` and so refuses to shrink below
+its min-content width — and a `<select>`'s min-content width is its widest
+`<option>`, which here is a whole product name. Chromium clamps a select's
+intrinsic width and hides it; WebKit honours it, so the page overflowed on iOS
+while every Chromium check passed. The rule the script enforces: no in-flow
+flex/grid child may have `min-width: auto` and a min-content width wider than
+the viewport.
+
+All exit non-zero on failure.

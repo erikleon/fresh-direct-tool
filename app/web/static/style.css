@@ -103,9 +103,18 @@ input[type=number], input[type=text], input[type=date], select {
   width: 100%; max-width: 100%; min-height: var(--tap);
 }
 /* Normalised control, but keep an affordance — a select with no chevron reads
- * as a disabled text field. */
+ * as a disabled text field.
+ *
+ * `min-width: 0` is the load-bearing line. A flex/grid child defaults to
+ * `min-width: auto`, meaning it will not shrink below its min-content width —
+ * and a <select>'s min-content width is its widest <option>. These options are
+ * whole product names, which measures 556px against a 390px viewport. Chromium
+ * clamps a select's intrinsic width and hides the problem; WebKit does not, so
+ * on iOS this alone pushed the document to roughly twice the viewport and
+ * Safari zoomed out to fit. */
 select {
   appearance: none;
+  min-width: 0;
   padding-right: var(--sp-xl);
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%236b7280' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -210,7 +219,8 @@ table.cart tr {
   padding: var(--sp-sm) 0 var(--sp-ms);
   border-bottom: 1px solid var(--hairline);
 }
-table.cart td { padding: 0; }
+table.cart td { padding: 0; min-width: 0; }
+.swap-form, .qty-form { min-width: 0; }
 .c-toggle { grid-area: toggle; }
 .c-need   { grid-area: need; font-weight: 600; line-height: 1.35; }
 .c-prod   { grid-area: prod; }

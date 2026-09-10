@@ -157,6 +157,22 @@ all four are covered by tests:
    "· over by $12.40". That block sits above the table, and any rewrap there
    shifts the whole cart.
 
+## Intrinsic width: the `min-width: auto` trap
+
+**Every flex or grid child that can hold long content needs `min-width: 0`.**
+
+A flex/grid child defaults to `min-width: auto`, which floors it at its
+min-content width. For a `<select>` that floor is its *widest `<option>`* — and
+this cart's options are whole product names, measuring 556px against a 390px
+viewport. Chromium clamps a select's intrinsic width and absorbs the problem;
+WebKit honours it. The result was a document roughly twice the viewport width on
+iOS, which Safari resolves by zooming out to fit — so the page looked shrunk with
+dead space beside it, while every Chromium measurement said zero overflow.
+
+Testing "does it overflow in Chromium" cannot catch this. `min-content.mjs`
+tests the engine-independent property instead: no in-flow flex/grid child may
+combine `min-width: auto` with a min-content width wider than the viewport.
+
 ## Progressive enhancement
 
 `live.js` is enhancement only. Every form works with the file deleted.
@@ -188,4 +204,5 @@ all four are covered by tests:
 | 2026-09-10 | `live.js` re-parses the full page rather than a fragment route | One render path; a fragment endpoint is a second source of truth that drifts |
 | 2026-09-10 | 44px minimum tap targets | The include/exclude control was 25×22 |
 | 2026-09-10 | 16px form controls below 800px | Anything smaller makes iOS Safari zoom on focus |
+| 2026-09-10 | `min-width: 0` on selects, cart cells and the line forms | A select's min-content width is its widest option (556px here); WebKit honours that floor and Chromium does not, so iOS Safari zoomed the whole page out to fit |
 | 2026-09-10 | Running total pinned beside Approve on phones | The budget bar scrolls away after three rows; the number you are deciding against should stay put |
