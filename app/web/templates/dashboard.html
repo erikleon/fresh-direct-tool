@@ -87,6 +87,7 @@
       <span class="badge {{ plan.status }}">{{ plan.status }}</span>
     </div>
 
+    <div id="budget-region">
     {% if plan.budget_cap_cents %}
       {% set pct = (sub / plan.budget_cap_cents * 100) if plan.budget_cap_cents else 0 %}
       <div class="budget">
@@ -106,6 +107,7 @@
     {% else %}
       <div class="budget-label"><strong>{{ sub | dollars }}</strong> · no budget cap set</div>
     {% endif %}
+    </div>
 
     <div class="delivery">
       <div class="delivery-head">
@@ -148,73 +150,98 @@
             <button class="link">Save delivery</button>
           </form>
         {% else %}
-          <div class="muted small">Run <code>fdplanner addresses</code> to load your saved addresses.</div>
+          <div class="muted small">Run <code class="wrap-anywhere">fdplanner addresses</code> to load your saved addresses.</div>
         {% endif %}
       {% endif %}
     </div>
 
-    <table class="cart">
-      <thead>
-        <tr><th></th><th>Item</th><th>Chosen product</th><th class="r">Price</th><th>Qty</th><th>Why</th></tr>
+    {# Explicit ARIA roles: the phone layout overrides `display` on these
+       elements, which drops the implicit table semantics. #}
+    <div class="cart-wrap">
+    <table class="cart" role="table">
+      <thead role="rowgroup">
+        <tr role="row">
+          <th role="columnheader"><span class="sr-only">In cart</span></th>
+          <th role="columnheader">Item</th><th role="columnheader">Chosen product</th>
+          <th class="r" role="columnheader">Price</th><th role="columnheader">Qty</th>
+          <th role="columnheader">Why</th>
+        </tr>
       </thead>
-      <tbody>
+      <tbody id="cart-body" role="rowgroup">
       {% for line in plan.lines %}
-        <tr class="{{ 'dropped' if not line.included else '' }} {{ 'review' if line.needs_review else '' }}">
-          <td>
-            <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/toggle">
+        <tr id="line-{{ line.id }}" role="row"
+            class="{{ 'dropped' if not line.included else '' }} {{ 'review' if line.needs_review else '' }}">
+          <td class="c-toggle" role="cell">
+            <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/toggle" data-live>
               <input type="hidden" name="included" value="{{ 'off' if line.included else 'on' }}">
-              <button class="link" title="{{ 'Remove' if line.included else 'Add back' }}">
-                {{ '✓' if line.included else '＋' }}
+              {# Fixed-size box with the glyph centred, so ✓ ↔ + cannot reflow the row. #}
+              <button class="toggle" data-state="{{ 'in' if line.included else 'out' }}"
+                      aria-pressed="{{ 'true' if line.included else 'false' }}"
+                      title="{{ 'Remove ' ~ line.need ~ ' from the cart' if line.included else 'Add ' ~ line.need ~ ' back to the cart' }}">
+                <span aria-hidden="true">{{ '✓' if line.included else '+' }}</span>
+                <span class="sr-only">{{ 'Remove ' ~ line.need if line.included else 'Add back ' ~ line.need }}</span>
               </button>
             </form>
           </td>
-          <td>
+          <td class="c-need" role="cell">
             {{ line.need }}
             {% if line.needs_review %}<span class="tag warn">review</span>{% endif %}
             {% if line.swapped %}<span class="tag swap">swapped ↓</span>{% endif %}
           </td>
-          <td>
+          <td class="c-prod" role="cell">
             <div class="prod">
               {% if line.selected_brand %}<span class="brand">{{ line.selected_brand }}</span>{% endif %}
               {{ line.selected_name }}
               {% if line.selected_size %}<span class="muted small">· {{ line.selected_size }}</span>{% endif %}
             </div>
             {% if line.alternatives | length > 1 and plan.status == 'draft' %}
-              <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/select" class="swap-form">
-                <select name="sku">
+              <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/select" class="swap-form" data-live>
+                <select name="sku" aria-label="Chosen product for {{ line.need }}">
                   {% for alt in line.alternatives %}
                     <option value="{{ alt.sku }}" {{ 'selected' if alt.sku == line.selected_sku }}>
                       {{ alt.brand or '' }} {{ alt.name }} — {{ alt.price_cents | dollars }}{{ ' (sold out)' if alt.sold_out }}
                     </option>
                   {% endfor %}
                 </select>
-                <button class="link small">swap</button>
+                {# Only reachable without JS; live.js submits on change instead. #}
+                <button class="link small js-optional">swap</button>
               </form>
             {% endif %}
           </td>
-          <td class="r">{{ line.selected_price_cents | dollars }}</td>
-          <td>
-            <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/qty" class="qty-form">
-              <input type="number" name="quantity" value="{{ '%g' % line.quantity }}" step="1" min="0">
-              <button class="link small">set</button>
+          <td class="c-price r" role="cell">{{ line.selected_price_cents | dollars }}</td>
+          <td class="c-qty" role="cell">
+            <form method="post" action="/plan/{{ plan.id }}/line/{{ line.id }}/qty" class="qty-form" data-live>
+              <input type="number" name="quantity" value="{{ '%g' % line.quantity }}" step="1" min="0"
+                     aria-label="Quantity of {{ line.need }}">
+              <button class="link small js-optional">set</button>
             </form>
           </td>
-          <td class="muted small">{{ line.reason }}</td>
+          <td class="c-why muted small" role="cell">{{ line.reason }}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
+    </div>
 
-    <div class="actions">
+    {# Pinned to the bottom of the viewport on a phone: twelve rows of scrolling
+       should not stand between a decision and committing it. #}
+    <div class="actions" id="actions-region">
       {% set included = plan.lines | selectattr('included') | list %}
       {% if plan.status == 'draft' %}
+        <div class="actions-meta">
+          <span class="sticky-total">
+            {{ sub | dollars }}
+            {% if plan.budget_cap_cents %}<span class="of">of {{ plan.budget_cap_cents | dollars }}</span>{% endif %}
+          </span>
+          <span class="muted small">
+            {{ included | length }} item(s) ·
+            {{ plan.lines | selectattr('needs_review') | selectattr('included') | list | length }}
+            flagged for review
+          </span>
+        </div>
         <form method="post" action="/plan/{{ plan.id }}/approve">
           <button class="primary big">Approve cart →</button>
         </form>
-        <span class="muted small">
-          {{ plan.lines | selectattr('needs_review') | selectattr('included') | list | length }}
-          line(s) flagged for review
-        </span>
 
       {% elif plan.status == 'approved' %}
         {% if handoff.status == 'running' and handoff.plan_id == plan.id %}
