@@ -151,5 +151,5 @@ def ingredient_query(line):
     text=re.sub(r'\([^)]*\)', ' ', line)
     text=re.split(r',|\bor\b',text,maxsplit=1)[0].strip()
     text=re.sub(r'^(?:about\s+|one\s+|a\s+pinch\s+of\s+)?[\d\s/¼½¾⅓⅔.-]*(?:to\s+\d+\s+)?', '', text, flags=re.I)
-    text=re.sub(r'^(?:tablespoons?|teaspoons?|cups?|lbs?\.?|oz|ounces?|pounds?|cloves?|cans?|packages?|bunch(?:es)?|heads?)\s+','',text,flags=re.I)
+    text=re.sub(r'^(?:tablespoons?|teaspoons?|tbsps?|tsps?|cups?|lbs?\.?|oz|ounces?|pounds?|grams?|g|kg|ml|cloves?|cans?|packages?|bunch(?:es)?|heads?)\s+','',text,flags=re.I)
     return text.strip() or line
