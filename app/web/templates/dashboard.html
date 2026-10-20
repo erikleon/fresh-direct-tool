@@ -35,6 +35,10 @@
     </details>
     {% if meal.unmatched_ingredients %}<p>Still needs a product or quantity check:</p>
       <ul>{% for item in meal.unmatched_ingredients %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+    {% if meal.in_pantry %}<p>On hand, from your pantry list:</p>
+      <ul>{% for item in meal.in_pantry %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+    {% if meal.likely_on_hand %}<p>Probably have, bought recently (still on the shopping list, unchecked):</p>
+      <ul>{% for item in meal.likely_on_hand %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
   </article>
   {% endfor %}
   {% if meal_context.get('forecast') %}<p class="muted small">Weather: <a href="https://open-meteo.com/" rel="noreferrer">Open-Meteo</a>,

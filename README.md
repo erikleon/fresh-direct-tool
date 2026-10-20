@@ -214,6 +214,25 @@ combined quantity. Purchase history is not pantry inventory, and a recipe
 amount is not a number of supermarket packages. The budget covers included
 shopping lines, not the cost of every suggested meal.
 
+### Pantry list
+
+Two things tell the planner what the household probably has.
+
+**Confirmed items.** Set `FDPLANNER_PANTRY_FILE` to a text file with one name per
+line. Blank lines and lines starting with `#` are ignored. A recipe ingredient
+that matches a name is not searched and gets no shopping line. The meal card
+lists it under "On hand". Matching is exact after dropping words such as
+"organic" and "chopped", so `flour` does not cover `self-rising flour`. A missed
+match leaves one extra unchecked line, which is the cheap mistake. A file that
+has not changed in 90 days, or cannot be read, is not used, and the plan notes
+say why. Leave the setting unset to turn the list off.
+
+**Estimated stock.** No setup. If the product picked for an ingredient, or one of
+its alternatives, was bought at least three times and the last purchase is
+inside 70% of its usual buying interval, the line's reason says when it was
+bought and that it is likely on hand. The line stays on the draft and stays
+unchecked: order history shows when something was bought, not how much is left.
+
 Weather is optional. Set `FDPLANNER_WEATHER_LATITUDE`,
 `FDPLANNER_WEATHER_LONGITUDE` and `FDPLANNER_PLANNING_TIMEZONE` to enable
 Open-Meteo forecasts for the meal dates. Keep coordinates out of version control;

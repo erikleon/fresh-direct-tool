@@ -1,4 +1,5 @@
 """Cross-layer meal requirements: matching, persistence, and delivery edits."""
+import os
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
@@ -273,3 +274,72 @@ def test_saved_delivery_uses_same_local_date_as_meal_plan(tmp_path,monkeypatch):
     saved=plans.get_plan(plans.save_draft(draft,config),config)
     assert starts==[date(2026,11,2)]
     assert saved.delivery_start.date()==date(2026,11,1)
+
+
+def pantry_setup(tmp_path, monkeypatch, forecast, ingredients, pantry_text=None, age_days=0):
+    pantry_file = tmp_path / 'pantry.txt'
+    if pantry_text is not None:
+        pantry_file.write_text(pantry_text)
+        old = pantry_file.stat().st_mtime - age_days * 86400
+        os.utime(pantry_file, (old, old))
+    config = Settings(data_dir=tmp_path, ai_provider='disabled', pantry_file=pantry_file)
+    monkeypatch.setattr(inbox, 'list_open', lambda *a: [])
+    monkeypatch.setattr(planner, 'replenishment', lambda *a: forecast)
+    monkeypatch.setattr(meals, 'suggest_meals', lambda *a: {'meals': [meal(ingredients=ingredients)]})
+    return config
+
+
+def yogurt_prediction(days_since_last):
+    return Prediction(
+        key='yogurt', name='Greek yogurt', times_bought=14, mean_interval_days=14,
+        last_purchased=date(2026, 10, 1), days_since_last=days_since_last,
+        predicted_next=date(2026, 10, 15), days_overdue=days_since_last - 14, active=True)
+
+
+def test_confirmed_item_is_not_searched_or_listed(tmp_path, monkeypatch):
+    config = pantry_setup(tmp_path, monkeypatch, [], ['2 tbsp olive oil', '3 onion'], 'olive oil\n')
+    searches = fake_catalog(monkeypatch, {'onion': [Product(
+        sku='onion', name='onion', price=Decimal('1'))]})
+    draft = planner.build_plan(config)
+    assert searches == ['onion']
+    assert [ln.need for ln in draft.lines] == ['onion']
+    assert draft.meal_context['meals'][0]['in_pantry'] == ['2 tbsp olive oil']
+    assert draft.meal_context['meals'][0]['ingredients'] == ['2 tbsp olive oil', '3 onion']
+
+
+def test_stale_pantry_file_is_ignored_with_a_note(tmp_path, monkeypatch):
+    config = pantry_setup(tmp_path, monkeypatch, [], ['3 onion'], 'onion\n', age_days=120)
+    searches = fake_catalog(monkeypatch, {'onion': [Product(
+        sku='onion', name='onion', price=Decimal('1'))]})
+    draft = planner.build_plan(config)
+    assert searches == ['onion']
+    assert any('last updated 120 days ago' in n for n in draft.meal_context['notes'])
+
+
+def test_missing_pantry_file_leaves_the_draft_usable_with_a_note(tmp_path, monkeypatch):
+    config = pantry_setup(tmp_path, monkeypatch, [], ['3 onion'])
+    searches = fake_catalog(monkeypatch, {'onion': [Product(
+        sku='onion', name='onion', price=Decimal('1'))]})
+    draft = planner.build_plan(config)
+    assert searches == ['onion']
+    assert any('could not be read' in n for n in draft.meal_context['notes'])
+
+
+def test_recent_purchase_annotates_but_keeps_the_line_unchecked(tmp_path, monkeypatch):
+    config = pantry_setup(tmp_path, monkeypatch, [yogurt_prediction(6)], ['1 cup greek yogurt'], '')
+    fake_catalog(monkeypatch, {'greek yogurt': [Product(
+        sku='yogurt', name='Greek Yogurt, Plain', price=Decimal('4'))]})
+    draft = planner.build_plan(config)
+    assert len(draft.lines) == 1
+    assert not draft.lines[0].included
+    assert 'Bought 6 days ago, usually every 14. Likely on hand.' in draft.lines[0].reason
+    assert draft.meal_context['meals'][0]['likely_on_hand'] == ['1 cup greek yogurt']
+
+
+def test_overdue_purchase_gets_no_annotation(tmp_path, monkeypatch):
+    config = pantry_setup(tmp_path, monkeypatch, [yogurt_prediction(13)], ['1 cup greek yogurt'], '')
+    fake_catalog(monkeypatch, {'greek yogurt': [Product(
+        sku='yogurt', name='Greek Yogurt, Plain', price=Decimal('4'))]})
+    draft = planner.build_plan(config)
+    assert 'Likely on hand' not in draft.lines[0].reason
+    assert draft.meal_context['meals'][0]['likely_on_hand'] == []
