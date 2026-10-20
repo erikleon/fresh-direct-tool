@@ -17,6 +17,31 @@
   <div class="banner error"><strong>Generation failed.</strong> <span class="muted">{{ job.message }}</span></div>
 {% endif %}
 
+{% if meal_context %}
+<section class="card">
+  <h2>Meals from your house recipes</h2>
+  <p class="muted small">Suggested meal ingredients start unchecked in the shopping list. Check your pantry, choose the right package size and quantity, then select the items you need.</p>
+  {% for note in meal_context.get('notes', []) %}<p class="muted small">{{ note }}</p>{% endfor %}
+  {% for meal in meal_context.get('meals', []) %}
+  <article>
+    <h3>{{ meal.day }} · {{ meal.title }}</h3>
+    <p>{{ meal.reason }} <span class="muted small">AI suggestion; review before shopping.</span></p>
+    {% if meal.weather %}<p class="muted small">Forecast: {{ meal.weather.low_f }}–{{ meal.weather.high_f }}°F,
+      {{ meal.weather.rain_percent }}% rain chance, gusts up to {{ meal.weather.gust_mph }} mph.
+      Cooking cue: {{ meal.weather.cooking_hint }}.</p>{% endif %}
+    <details><summary>Recipe quantities and pantry checklist</summary>
+      <ul>{% for ingredient in meal.ingredients %}<li>{{ ingredient }}</li>{% endfor %}</ul>
+      <p class="muted small">House recipe: {{ meal.source }}. These quantities were copied from the source, not generated.</p>
+    </details>
+    {% if meal.unmatched_ingredients %}<p>Still needs a product or quantity check:</p>
+      <ul>{% for item in meal.unmatched_ingredients %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+  </article>
+  {% endfor %}
+  {% if meal_context.get('forecast') %}<p class="muted small">Weather: <a href="https://open-meteo.com/" rel="noreferrer">Open-Meteo</a>,
+    fetched {{ meal_context.generated_at }}. Forecasts can change; check again before grilling.</p>{% endif %}
+</section>
+{% endif %}
+
 <section class="card requests">
   <div class="plan-head">
     <h2>Shopping list</h2>

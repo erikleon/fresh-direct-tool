@@ -27,6 +27,8 @@ class PlanLine:
     alternatives: list[Product] = field(default_factory=list)
     swap: Product | None = None  # a cheaper product suggested to hit budget
 
+    included: bool = True
+
     @property
     def chosen(self) -> Product:
         return self.swap or self.product
@@ -61,10 +63,11 @@ class DraftPlan:
     # Inbox requests this draft answered. Carried here because they can only be
     # closed once the plan has an id, which does not exist until save time.
     request_ids: list[int] = field(default_factory=list)
+    meal_context: dict = field(default_factory=dict)
 
     @property
     def subtotal_cents(self) -> int:
-        return sum(line.line_cents for line in self.lines)
+        return sum(line.line_cents for line in self.lines if line.included)
 
     @property
     def over_by_cents(self) -> int:
@@ -74,7 +77,7 @@ class DraftPlan:
 
     @property
     def review_lines(self) -> list[PlanLine]:
-        return [ln for ln in self.lines if ln.needs_review]
+        return [ln for ln in self.lines if ln.included and ln.needs_review]
 
 
 @dataclass
@@ -96,6 +99,8 @@ def reconcile(plan: DraftPlan) -> list[SwapSuggestion]:
     # Rank lines by how much a swap would save, then apply until under budget.
     candidates: list[SwapSuggestion] = []
     for line in plan.lines:
+        if not line.included:
+            continue
         alt = line.cheapest_alternative()
         if alt is None:
             continue

@@ -21,14 +21,14 @@ def _prod(sku, name="Whole Milk", brand=None):
 
 
 def _settings():
-    return Settings(anthropic_api_key="test-key")
+    return Settings(ai_provider="anthropic", anthropic_api_key="test-key")
 
 
 def _nokey(monkeypatch):
     """A Settings with no key configured, immune to any ambient env key."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("FDPLANNER_ANTHROPIC_API_KEY", raising=False)
-    return Settings(anthropic_api_key=None)
+    return Settings(ai_provider="anthropic", anthropic_api_key=None)
 
 
 class _ToolBlock:
@@ -66,7 +66,7 @@ def test_is_configured_from_settings():
 def test_is_configured_from_env(monkeypatch):
     monkeypatch.delenv("FDPLANNER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
-    assert ai.is_configured(Settings(anthropic_api_key=None))
+    assert ai.is_configured(Settings(ai_provider="anthropic", anthropic_api_key=None))
 
 
 def test_not_configured(monkeypatch):

@@ -118,7 +118,9 @@ def chrome_major_version(system: str | None = None) -> str:
 def user_agent_for(system: str | None = None) -> str:
     """A UA naming this host's platform and this host's Chrome version."""
     system = system or platform.system()
-    template = _UA_TEMPLATES.get(system, _UA_TEMPLATES["Darwin"])
+    if system not in _UA_TEMPLATES:
+        system = "Darwin"
+    template = _UA_TEMPLATES[system]
     return template.format(major=chrome_major_version(system))
 
 

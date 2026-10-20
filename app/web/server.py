@@ -49,12 +49,14 @@ app.include_router(api_router)
 def _render(request: Request, plan):
     from app.delivery import load_addresses
     from app.inbox import list_open
+    from app.plans import get_meal_context
 
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context={
             "plan": plan,
+            "meal_context": get_meal_context(plan.id) if plan else {},
             "job": jobs.get_state(),
             "handoff": jobs.handoff_state(),
             "addresses": load_addresses(),

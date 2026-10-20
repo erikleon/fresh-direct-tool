@@ -2,7 +2,7 @@
 
 The signal extraction (:func:`compute_signals`) and the heuristic mapping
 (:func:`draft_profile`) are pure functions over line items, so they're tested
-without a DB and run fully offline. An optional Claude pass (:mod:`app.ai`) can
+without a DB and run fully offline. An optional local AI pass (:mod:`app.ai`) can
 later turn the draft into richer prose, but the structured profile stands on its
 own. The result is persisted to ``data/profile.json`` and is meant to be
 human-editable — it's a starting point, not a verdict.

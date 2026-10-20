@@ -11,7 +11,10 @@ budget with cheaper-swap suggestions. The result is a reviewable draft cart.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from app import ai
 from decimal import Decimal
 from typing import Callable
 
@@ -26,6 +29,7 @@ from app.models import RequestRow
 ProgressCb = Callable[[str], None]
 
 
+@ai.planning_session()
 def build_plan(
     settings: Settings | None = None,
     horizon_days: int = 7,
@@ -57,6 +61,18 @@ def build_plan(
         "Pricing against the catalog…")
 
     plan = DraftPlan(week_of=date.today(), budget_cap_cents=cap_cents)
+    from app.meals import suggest_meals, ingredient_query
+    from app.delivery import next_preferred_delivery
+    if settings.meal_count:
+        try:
+            local_today=datetime.now(ZoneInfo(settings.planning_timezone)).date()
+        except (ZoneInfoNotFoundError, ValueError):
+            plan.meal_context={'meals':[], 'notes':[
+                'Planning timezone is unavailable; meal suggestions were skipped. Staples and shopping requests are still included.']}
+        else:
+            start=next_preferred_delivery(after=local_today,day=settings.preferred_delivery_day,hour=settings.preferred_delivery_after_hour).date()+timedelta(days=1)
+            say("Choosing house recipes with the forecast after the next delivery…")
+            plan.meal_context=suggest_meals(settings,start,min(7,max(1,horizon_days)),due)
     client = FreshDirectClient(settings, headed=headed)
 
     with client.session() as fd:
@@ -91,6 +107,40 @@ def build_plan(
             planned_keys.add(key)
             plan.request_ids.append(req.id)
             say(f"  [{i}/{len(requested)}] {req.text}: matched {line.product.name}")
+
+        # Meal ingredients remain review-required: source recipe amounts are not
+        # FreshDirect package counts and history does not establish pantry stock.
+        meal_searches=0
+        for meal in plan.meal_context.get('meals',[]):
+            for ingredient in meal['ingredients']:
+                query=ingredient_query(ingredient)
+                if query.lower() in ('water','salt','pepper','salt and pepper'):
+                    continue  # Still visible in the full recipe ingredient checklist.
+                key=normalize_key(query)
+                if key in planned_keys:
+                    existing=next((line for line in plan.lines if normalize_key(line.need)==key),None)
+                    if existing:
+                        existing.confidence=min(existing.confidence,.4)
+                        existing.reason+=f"; also needed for {meal['title']} ({meal['day']}): {ingredient}. Check combined quantity."
+                    continue
+                if meal_searches>=40:
+                    meal['unmatched_ingredients'].append(ingredient);continue
+                meal_searches+=1
+                candidates=fd.search_products(query,limit=12)
+                ranked=score_candidates(query,candidates)
+                # Require overlap in the actual ingredient/product names, not
+                # merely organic preference or incidental description tokens.
+                query_terms=set(normalize_key(query).split()) - {
+                    "organic", "large", "small", "medium", "raw", "diced", "chopped",
+                    "sliced", "minced", "whole", "ground", "dried", "frozen", "cooked"}
+                ranked=[r for r in ranked if query_terms & set(normalize_key(r.product.name).split())]
+                pick=next((r.product for r in ranked if not r.product.sold_out and r.product.price is not None),None)
+                if pick is None:
+                    meal['unmatched_ingredients'].append(ingredient);continue
+                plan.lines.append(PlanLine(need=query,product=pick,quantity=1,source='meal',confidence=.4,included=False,
+                    reason=f"{meal['title']} ({meal['day']}): {ingredient}. Check pantry and package quantity.",
+                    alternatives=[r.product for r in ranked if r.product.sku!=pick.sku][:4]))
+                planned_keys.add(key)
 
     reconcile(plan)
     return plan
@@ -136,7 +186,7 @@ def _line_for_request(
     """Resolve a free-text request to a product line.
 
     Goes through the full :func:`app.match.resolve` — a learned alias first, then
-    the heuristic, then Claude if a key is configured — because "oat milk" is
+    the heuristic, then local AI when enabled — because "oat milk" is
     exactly the ambiguous phrasing that alias learning exists for. A weak match
     still becomes a line: the household manager reviews the cart either way, and
     a flagged line they can correct is more useful than a silent omission.
@@ -155,6 +205,6 @@ def _line_for_request(
         quantity=1.0,
         source="manual",
         confidence=0.0 if result.force_review else result.confidence,
-        reason=f"requested ({where}), matched by {result.method}",
+        reason=f"requested ({where}), matched by {result.method}" + ("; AI unavailable, heuristic fallback" if result.ai_unavailable else ""),
         alternatives=[a for a in result.alternatives if a.sku != result.pick.sku],
     )

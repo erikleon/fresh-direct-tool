@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from platformdirs import user_data_dir
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,11 @@ class Settings(BaseSettings):
     regardless of working directory. Set FDPLANNER_DATA_DIR to relocate it.
     """
 
+    @field_validator("weather_latitude", "weather_longitude", mode="before")
+    @classmethod
+    def empty_coordinate(cls, value):
+        return None if value == "" else value
+
     # --- FreshDirect -----------------------------------------------------
     fd_base_url: str = "https://www.freshdirect.com"
     fd_account_url: str = "https://www.freshdirect.com/account/history"
@@ -60,7 +66,17 @@ class Settings(BaseSettings):
     weekly_budget: float | None = None
     """Weekly spend cap in dollars; None means no cap. Overridable per run."""
 
+    recipes_file: Path | None = None
+    meal_count: int = Field(default=3, ge=0, le=7)
+    weather_latitude: float | None = Field(default=None, ge=-90, le=90)
+    weather_longitude: float | None = Field(default=None, ge=-180, le=180)
+    planning_timezone: str = "America/New_York"
+
     # --- AI (used from Phase 2) -----------------------------------------
+    ai_provider: Literal["ollama", "anthropic", "disabled"] = "ollama"
+    ollama_url: str = "http://127.0.0.1:11434"
+    ai_timeout_seconds: float = Field(default=90, gt=0, le=300)
+    ai_context_tokens: int = Field(default=16384, ge=4096, le=65536)
     anthropic_api_key: str | None = None
     anthropic_api_key_file: Path | None = None
     """Read the key from a file instead. Takes precedence over the variable.
@@ -69,7 +85,7 @@ class Settings(BaseSettings):
     ``Config.Env``, so anything permitted to inspect a container reads every
     secret passed as an environment variable. A file is not handed out that way.
     """
-    planner_model: str = "claude-opus-4-8"
+    planner_model: str = "qwen3.6:35b-a3b-q4_K_M"
 
     # --- Review surface (Phase 3) ---------------------------------------
     dashboard_url: str = "http://127.0.0.1:8000"

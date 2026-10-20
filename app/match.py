@@ -4,7 +4,7 @@ Three tiers, cheapest first:
 1. **Alias** — a learned generic→SKU mapping from a past human correction.
 2. **Heuristic** — pure token/brand/organic/size scoring over search candidates
    (this module's core; fully unit-tested, no network or LLM).
-3. **Claude** — optional re-rank of the top heuristic candidates for hard cases.
+3. **local AI** — optional re-rank of the top heuristic candidates for hard cases.
 
 Replenishment lines usually skip all this: history already gives the exact SKU.
 Matching mainly serves *new* meal ingredients.
@@ -50,6 +50,7 @@ class MatchResult:
     confidence: float
     method: str  # alias | heuristic | ai | none
     alternatives: list[Product] = field(default_factory=list)
+    ai_unavailable: bool = False
     force_review: bool = False  # set when the AI signals doubt (e.g. "nothing fits")
 
     @property
@@ -203,10 +204,10 @@ def resolve(
     profile_hint: str | None = None,
     settings: Settings | None = None,
 ) -> MatchResult:
-    """Full resolve: alias → heuristic, then an optional Claude re-rank.
+    """Full resolve: alias → heuristic, then an optional local AI re-rank.
 
     A learned alias wins outright. Otherwise the heuristic produces a ranked
-    list; if an Anthropic key is configured, Claude re-ranks the top candidates
+    list; when local AI is enabled, local AI re-ranks the top candidates
     (cheap, bounded) and its pick is used when valid. Falls back silently to the
     heuristic when no key is set or anything goes wrong.
     """
@@ -225,17 +226,18 @@ def resolve(
     if not ai.is_configured(settings):
         return result
 
-    # Hand Claude the heuristic's shortlist (pick + alternatives), not all 30,
+    # Hand local AI the heuristic's shortlist (pick + alternatives), not all 30,
     # and only accept a pick from what it actually saw.
     shortlist = [result.pick, *result.alternatives] if result.pick else candidates[:8]
     by_sku = {p.sku: p for p in shortlist}
     choice = ai.rank_products(query, shortlist, profile_hint=profile_hint, settings=settings)
     if not choice:
+        result.ai_unavailable = True
         return result
 
     sku = choice.get("sku", "")
     if not sku:
-        # Claude judged nothing in the shortlist fits — its most useful signal.
+        # local AI judged nothing in the shortlist fits — its most useful signal.
         # Keep the heuristic pick but force a human look.
         result.force_review = True
         return result
