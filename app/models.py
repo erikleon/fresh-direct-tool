@@ -188,3 +188,10 @@ class RequestRow(SQLModel, table=True):
     status: str = Field(default="open", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     plan_id: Optional[int] = Field(default=None, foreign_key="plans.id", index=True)
+
+
+class PlanContextRow(SQLModel, table=True):
+    """Additive storage: old application versions can still read every existing plan."""
+    __tablename__ = "plan_context"
+    plan_id: int = Field(primary_key=True, foreign_key="plans.id")
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON))

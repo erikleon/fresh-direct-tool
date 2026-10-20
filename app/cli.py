@@ -297,12 +297,12 @@ def match(
 
 @app.command()
 def profile(
-    no_ai: bool = typer.Option(False, "--no-ai", help="Heuristics only, skip Claude"),
+    no_ai: bool = typer.Option(False, "--no-ai", help="Heuristics only, skip local AI"),
 ) -> None:
     """Infer (and save) a household dietary profile from purchase history.
 
     Works fully offline from the data; if an Anthropic API key is configured it
-    also refines the draft with Claude.
+    also refines the draft with local AI.
     """
     from app import ai
     from app.profile import infer_profile
@@ -328,8 +328,8 @@ def profile(
             console.print(f"   • {n}")
     if not no_ai and not ai.is_configured(get_settings()):
         console.print(
-            "\n[dim]No Anthropic key set — used heuristics only. Set "
-            "FDPLANNER_ANTHROPIC_API_KEY to enrich with Claude.[/dim]"
+            "\n[dim]AI is disabled — used heuristics only. Set "
+            "FDPLANNER_AI_PROVIDER=ollama to enable local AI.[/dim]"
         )
     console.print(f"\n[green]Saved to {path}[/green]")
 
@@ -368,6 +368,8 @@ def plan(
         chosen = ln.chosen
         swapped = " [yellow](swapped ↓)[/yellow]" if ln.swap else ""
         flag = "[red]review[/red]" if ln.needs_review else ""
+        if not ln.included:
+            flag = "[yellow]excluded candidate[/yellow]"
         table.add_row(
             ln.need,
             (chosen.one_line()) + swapped,
@@ -376,6 +378,8 @@ def plan(
             flag,
         )
     console.print(table)
+    if any(not line.included for line in draft.lines):
+        console.print("[dim]Excluded meal candidates are not in the subtotal or cart. Review pantry and package quantities, then include them in the dashboard.[/dim]")
 
     sub = dollars(draft.subtotal_cents)
     if draft.budget_cap_cents is None:

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
-from app.plans import get_plan, latest_plan_id
+from app.plans import get_plan, latest_plan_id, get_meal_context
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +191,7 @@ def get_latest_plan(
             "week_of": plan.week_of.isoformat(),
             "status": plan.status,
             "lines": len(included),
+            "meal_context": get_meal_context(plan.id, settings),
             "requested_lines": sum(1 for ln in included if ln.source == "manual"),
             "needs_review": sum(1 for ln in included if ln.needs_review),
             "subtotal_cents": subtotal,

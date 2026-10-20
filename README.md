@@ -29,7 +29,7 @@ off a ready-to-checkout cart. _(Shown with synthetic demo data.)_
 | ----- | -------------------------------------------------------------------------------------------------------------- | ------------- |
 | 0     | FD login + order history & line items via GraphQL (+ paste fallback)                                           | ✅ done       |
 | 1     | SQLite persistence, resumable backfill, spend tracking + replenishment                                         | ✅ done (CLI) |
-| 2     | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · meals (later)                         | ✅ done (CLI) |
+| 2     | Profile ✅ · search ✅ · SKU match ✅ · restock draft plan + budget ✅ · house-recipe meals ✅                         | ✅ done (CLI) |
 | 3     | Review dashboard ✅ · edit/approve ✅ · cart hand-off ✅ · delivery ✅ · email digest ✅ · weekly scheduler ✅ | ✅ done       |
 | 3.5   | Shopping-list inbox ✅ · JSON API ✅ · container + Home Assistant / Apple Reminders bridge ✅          | ✅ done       |
 | 4     | (future) Auto-checkout behind a flag                                                                           | planned       |
@@ -88,12 +88,12 @@ uv run fdplanner profile
 # Search the live catalog
 uv run fdplanner search "organic whole milk"
 
-# Resolve a free-text need to a real SKU (alias → heuristic → optional Claude)
+# Resolve a free-text need to a real SKU (alias → heuristic → optional local AI)
 uv run fdplanner match "organic whole milk"
 # Teach the right product so future matches resolve instantly
 uv run fdplanner match "organic whole milk" --teach DAI0059088
 
-# Build a restock draft cart from items due, priced live, under a budget cap
+# Build a draft with due staples, requests and optional house-recipe meals
 uv run fdplanner plan --horizon 7 --budget 200
 
 # Cache your saved delivery addresses (for the dashboard's address picker)
@@ -119,7 +119,7 @@ quantities, **remove** items, **swap** to a cheaper/different product (which is
 learned as an alias), watch the **budget bar**, **approve**, and then **send the
 approved cart to FreshDirect** behind an explicit confirm. Hand-off
 (`app/handoff.py`) drives the real "Add to bag" buttons to populate your cart
-(quantity 1 per line; set higher quantities in the cart) and returns a checkout
+(using the reviewed quantities) and returns a checkout
 link — it never places the order or pays. You review and check out yourself.
 
 The plan also carries a **delivery** choice: pick which saved address this week's
@@ -142,17 +142,19 @@ The draft plan (`app/planner.py`) takes the items due, prices each against the
 live catalog — preferring the _exact_ product you've bought before (its
 historical `product_id`) — then reconciles against the weekly cap with
 cheaper-swap suggestions (`app/budget.py`, pure + tested). Low-confidence matches
-are flagged for review. Meal planning will layer on top once an API key is set.
+are flagged for review. With a house-recipe export connected, the draft also
+suggests dinners for the days following the preferred delivery date.
 
 Matching (`app/match.py`) scores search candidates on term overlap, brand,
 organic, and single-unit-vs-multipack, with **ambiguity-aware confidence** (a
 toss-up isn't reported as certain) so weak matches flag for review. Corrections
-are remembered as aliases; with an Anthropic key, Claude re-ranks the shortlist.
+are remembered as aliases; local Ollama inference re-ranks the shortlist when
+configured. An unavailable model leaves the heuristic result visible for review.
 
 `profile` works fully offline from the data (organic preference, plant-forward
-lean, proteins, household signals like a baby in the house). If
-`FDPLANNER_ANTHROPIC_API_KEY` is set it also refines the draft with Claude
-(`app/ai.py`, prompt-cached, structured tool output).
+lean, proteins, household signals like a baby in the house). Local AI can select
+from supported profile entries; it cannot add dietary restrictions, allergies,
+brands or household claims that the heuristic profile does not support.
 
 Money is stored as integer cents (`app/money.py`) so sums stay exact. The
 replenishment forecast (`app/analytics.py`) estimates each item's buying cadence
@@ -168,6 +170,70 @@ from how often it appears across orders and flags what's due.
 > intercept its GraphQL **responses** by operation name — `ordersHistory` (the
 > order list) and `order` (each order's line items) — and parse that JSON. Far
 > more robust than CSS selectors. See `app/freshdirect/history.py`.
+
+## Local AI and house recipes
+
+The default provider is Ollama, using `qwen3.6:35b-a3b-q4_K_M` with a
+16,384-token context and a 90-second request timeout. Point
+`FDPLANNER_OLLAMA_URL` at your trusted local Ollama endpoint (default
+`http://127.0.0.1:11434`). Model requests use structured JSON validated by the
+app. Local inference failures never trigger a cloud request. A transport failure
+stops further model calls for that planning run; staples and shopping-list
+matching continue with heuristics. Set `FDPLANNER_AI_PROVIDER=disabled` to use
+heuristics only.
+
+Set `FDPLANNER_RECIPES_FILE` to a read-only JSON export with this shape (example
+content is synthetic):
+
+```json
+{
+  "exported_at": "2026-10-20T12:00:00+00:00",
+  "collection": "house-recipes",
+  "recipes": [{
+    "id": "potato-soup",
+    "name": "potato-soup.md",
+    "content": "# Potato soup\n\nServes 4.\n\n## Ingredients\n- 2 lb potatoes\n- 4 cups broth\n\n## Steps\nSimmer until tender."
+  }]
+}
+```
+
+Refresh the export regularly: exports older than 48 hours are skipped with a
+visible note. The Mimir deployment exports the Open WebUI `house-recipes`
+collection hourly on the host and mounts it read-only; the app receives no
+knowledge-database credentials. Malformed individual recipes are omitted, and
+large collections are shortened to fit the model's input budget. Missing or
+stale recipes skip meal suggestions without stopping the staple draft.
+
+`FDPLANNER_MEAL_COUNT` defaults to three (zero disables meals). The model chooses
+existing recipe IDs and dates; ingredient quantities come verbatim from the
+source recipe. The dashboard shows the source ingredient checklist and missing
+catalog matches. New meal-only shopping lines start **unchecked**: check your
+pantry, recipe yield, product/package size and quantity before including them.
+If a staple already covers an ingredient, its line is flagged to check the
+combined quantity. Purchase history is not pantry inventory, and a recipe
+amount is not a number of supermarket packages. The budget covers included
+shopping lines, not the cost of every suggested meal.
+
+Weather is optional. Set `FDPLANNER_WEATHER_LATITUDE`,
+`FDPLANNER_WEATHER_LONGITUDE` and `FDPLANNER_PLANNING_TIMEZONE` to enable
+Open-Meteo forecasts for the meal dates. Keep coordinates out of version control;
+coordinates rounded to two decimal places are sent to Open-Meteo. Recipe text
+and purchase history stay with the configured local model. Mild, dry, calm days
+can favor a house grilling recipe; cold or rainy days can favor soup or stew.
+The planner does not invent a grilling method when the collection has no grill
+recipe. Unavailable forecasts produce a visible note. Forecasts older than 12
+hours, or belonging to a changed delivery date, are hidden until a new draft is
+generated. Model explanations are suggestions to review, not verified facts.
+
+For an explicit legacy rollback, set `FDPLANNER_AI_PROVIDER=anthropic`, choose
+an Anthropic model with `FDPLANNER_PLANNER_MODEL`, and provide
+`FDPLANNER_ANTHROPIC_API_KEY_FILE`. That opts profile refinement and product
+matching into cloud inference; it does not enable house-recipe meal suggestions.
+Merely retaining an Anthropic key does not enable cloud requests. To roll back
+the application image, stop the scheduler and web service, take a SQLite backup,
+and restore the previous pinned image/configuration. The added `plan_context`
+table is additive; do not delete it or restore an older database over newer
+shopping data just to roll back the image.
 
 ## Shopping list (the request inbox)
 
@@ -289,7 +355,7 @@ environment variables rather than relying on a `.env` file, e.g.:
 
 ```bash
 claude mcp add fresh-direct \
-  -e FDPLANNER_ANTHROPIC_API_KEY=sk-ant-... \
+  -e FDPLANNER_OLLAMA_URL=http://127.0.0.1:11434 \
   -e FDPLANNER_WEEKLY_BUDGET=200 \
   -- fdplanner-mcp
 ```
@@ -341,6 +407,8 @@ app/
   db.py, models.py     # SQLite engine + SQLModel tables (orders, order_items)
   ingest.py            # resumable backfill into the DB
   analytics.py         # spend summary + replenishment cadence (pure + DB-backed)
+  ai.py                # bounded local inference; explicit legacy provider opt-in
+  meals.py             # house-recipe selection and optional weather context
   inbox.py             # the shopping list: free-text requests waiting for a draft
   scheduler.py         # autonomous weekly run: build draft -> email digest
   notify/email.py      # weekly email digest (pure render + SMTP send/preview)

@@ -191,7 +191,7 @@ async def fd_match(item: str, brand: str | None = None) -> dict:
     """Resolve a free-text grocery need to a real FreshDirect SKU.
 
     Tries a learned alias first, then heuristic ranking of live search results
-    (plus an optional Claude re-rank if FDPLANNER_ANTHROPIC_API_KEY is set).
+    (plus an optional local AI re-rank when local AI is enabled).
     Requires a saved session (live search). Wrong pick? Correct it with
     fd_teach_match so future calls resolve instantly.
     """
@@ -232,8 +232,8 @@ def fd_teach_match(item: str, sku: str) -> dict:
 def fd_profile(use_ai: bool = True) -> dict:
     """Infer (and save) a household dietary profile from purchase history.
 
-    Works fully offline from the local DB; if FDPLANNER_ANTHROPIC_API_KEY is set
-    also refines the draft with Claude. Saved to data/profile.json.
+    Works fully offline from the local DB; when local AI is enabled
+    also refines the draft with local AI. Saved to data/profile.json.
     """
     from app.profile import infer_profile
 
