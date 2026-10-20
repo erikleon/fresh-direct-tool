@@ -369,3 +369,25 @@ def test_the_discard_control_is_offered_only_with_a_plan(client):
     assert "/discard" not in client.post(
         f"/plan/{plan_id}/discard", data={"confirm": "on"}
     ).text
+
+
+def test_meal_card_lists_pantry_items_and_recent_purchases(client):
+    from app.db import session_scope
+    from app.models import PlanContextRow
+
+    settings = _settings_of(client)
+    plan_id, _ = _plan_and_lines(client)
+    meal = {
+        "title": "Mousse", "day": "2026-11-02", "reason": "Quick.", "weather": None,
+        "ingredients": ["2 tbsp cocoa powder", "1 cup greek yogurt"], "source": "mousse.md",
+        "unmatched_ingredients": [], "in_pantry": ["2 tbsp cocoa powder"],
+        "likely_on_hand": ["1 cup greek yogurt"],
+    }
+    with session_scope(settings) as db:
+        db.add(PlanContextRow(plan_id=plan_id, payload={"meals": [meal], "notes": []}))
+        db.commit()
+
+    html = client.get("/").text
+    assert "On hand, from your pantry list" in html
+    assert "<li>2 tbsp cocoa powder</li>" in html
+    assert "Probably have, bought recently" in html

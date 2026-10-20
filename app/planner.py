@@ -25,6 +25,7 @@ from app.freshdirect.base import Product
 from app.freshdirect.client import FreshDirectClient
 from app.match import calibrated_confidence, normalize_key, resolve, score_candidates
 from app.models import RequestRow
+from app import pantry
 
 ProgressCb = Callable[[str], None]
 
@@ -49,8 +50,9 @@ def build_plan(
     cap = budget if budget is not None else settings.weekly_budget
     cap_cents = int(round(cap * 100)) if cap else None
 
+    forecast = replenishment(settings)
     due = [
-        p for p in replenishment(settings)
+        p for p in forecast
         if p.active and p.days_overdue >= -horizon_days
     ][:max_items]
 
@@ -111,11 +113,18 @@ def build_plan(
         # Meal ingredients remain review-required: source recipe amounts are not
         # FreshDirect package counts and history does not establish pantry stock.
         meal_searches=0
+        confirmed,pantry_note=pantry.load_confirmed(settings.pantry_file)
+        if pantry_note and plan.meal_context.get('meals'):
+            plan.meal_context.setdefault('notes',[]).append(pantry_note)
+        bought={p.key:p for p in forecast}
         for meal in plan.meal_context.get('meals',[]):
+            meal.setdefault('in_pantry',[]);meal.setdefault('likely_on_hand',[])
             for ingredient in meal['ingredients']:
                 query=ingredient_query(ingredient)
                 if query.lower() in ('water','salt','pepper','salt and pepper'):
                     continue  # Still visible in the full recipe ingredient checklist.
+                if pantry.is_confirmed(query,confirmed):
+                    meal['in_pantry'].append(ingredient);continue  # No search, no line.
                 key=normalize_key(query)
                 if key in planned_keys:
                     existing=next((line for line in plan.lines if normalize_key(line.need)==key),None)
@@ -130,16 +139,20 @@ def build_plan(
                 ranked=score_candidates(query,candidates)
                 # Require overlap in the actual ingredient/product names, not
                 # merely organic preference or incidental description tokens.
-                query_terms=set(normalize_key(query).split()) - {
-                    "organic", "large", "small", "medium", "raw", "diced", "chopped",
-                    "sliced", "minced", "whole", "ground", "dried", "frozen", "cooked"}
+                query_terms=set(normalize_key(query).split()) - pantry.DESCRIPTORS
                 ranked=[r for r in ranked if query_terms & set(normalize_key(r.product.name).split())]
                 pick=next((r.product for r in ranked if not r.product.sold_out and r.product.price is not None),None)
                 if pick is None:
                     meal['unmatched_ingredients'].append(ingredient);continue
+                alternatives=[r.product for r in ranked if r.product.sku!=pick.sku][:4]
+                reason=f"{meal['title']} ({meal['day']}): {ingredient}. Check pantry and package quantity."
+                # An estimate only annotates: history cannot say how much is left.
+                recent=next((bought[p.sku] for p in [pick,*alternatives]
+                             if p.sku in bought and pantry.likely_on_hand(bought[p.sku])),None)
+                if recent:
+                    reason+=' '+pantry.on_hand_note(recent);meal['likely_on_hand'].append(ingredient)
                 plan.lines.append(PlanLine(need=query,product=pick,quantity=1,source='meal',confidence=.4,included=False,
-                    reason=f"{meal['title']} ({meal['day']}): {ingredient}. Check pantry and package quantity.",
-                    alternatives=[r.product for r in ranked if r.product.sku!=pick.sku][:4]))
+                    reason=reason,alternatives=alternatives))
                 planned_keys.add(key)
 
     reconcile(plan)

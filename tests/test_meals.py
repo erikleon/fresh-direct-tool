@@ -74,7 +74,7 @@ def test_disabled_meals_make_no_context_or_model_calls(tmp_path,monkeypatch):
     assert meals.suggest_meals(config,date.today())['meals']==[]
 
 
-@pytest.mark.parametrize('line,query',[('2 tablespoons olive oil, divided','olive oil'),('1/2 cup milk','milk'),('4 cups broth','broth'),('1 onion','onion')])
+@pytest.mark.parametrize('line,query',[('2 tablespoons olive oil, divided','olive oil'),('1/2 cup milk','milk'),('4 cups broth','broth'),('1 onion','onion'),('2 tbsp cocoa powder','cocoa powder'),('1/2 tsp vanilla','vanilla'),('500 g tofu','tofu')])
 def test_search_query_keeps_ingredient(line,query):
     assert meals.ingredient_query(line)==query
 

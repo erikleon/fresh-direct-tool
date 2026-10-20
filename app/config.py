@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     """Weekly spend cap in dollars; None means no cap. Overridable per run."""
 
     recipes_file: Path | None = None
+    pantry_file: Path | None = None
     meal_count: int = Field(default=3, ge=0, le=7)
     weather_latitude: float | None = Field(default=None, ge=-90, le=90)
     weather_longitude: float | None = Field(default=None, ge=-180, le=180)
