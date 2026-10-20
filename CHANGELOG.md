@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-10-20
 
 - Add an optional pantry list (`FDPLANNER_PANTRY_FILE`). Confirmed items skip the shopping list. Recently bought items are marked likely on hand from order history and buying frequency, and stay on the draft.
 - Strip `tbsp`, `tsp`, `g`, `kg` and `ml` from the front of recipe ingredient lines. "2 tbsp olive oil" was searched as "tbsp olive oil".
