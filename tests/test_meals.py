@@ -74,7 +74,7 @@ def test_disabled_meals_make_no_context_or_model_calls(tmp_path,monkeypatch):
     assert meals.suggest_meals(config,date.today())['meals']==[]
 
 
-@pytest.mark.parametrize('line,query',[('2 tablespoons olive oil, divided','olive oil'),('1/2 cup milk','milk'),('4 cups broth','broth'),('1 onion','onion'),('2 tbsp cocoa powder','cocoa powder'),('1/2 tsp vanilla','vanilla'),('500 g tofu','tofu')])
+@pytest.mark.parametrize('line,query',[('2 tablespoons olive oil, divided','olive oil'),('1/2 cup milk','milk'),('4 cups broth','broth'),('1 onion','onion'),('2 tbsp cocoa powder','cocoa powder'),('1/2 tsp vanilla','vanilla'),('500 g tofu','tofu'),('3 to 3 1/2 cups chicken or vegetable broth','chicken broth'),('1/4 teaspoon white or black pepper','white pepper'),('1 1/2 tablespoons canola or vegetable oil','canola oil'),('1 tablespoon tahini or peanut butter','tahini'),('1 tablespoon olive oil or butter','olive oil'),('4 cups bone broth, or beef or chicken stock','bone broth'),('chicken or meat','chicken'),('2 lb chuck roast or stew meat, cubed','chuck roast'),('1/2 cup dry white wine or dry vermouth','dry white wine'),('3 to 4 cups broth','broth'),('1 to 1 1/2 tablespoons oil','oil')])
 def test_search_query_keeps_ingredient(line,query):
     assert meals.ingredient_query(line)==query
 
@@ -127,3 +127,23 @@ def test_cut_weather_response_does_not_stop_recipe_planning(tmp_path, monkeypatc
     monkeypatch.setattr(meals.urllib.request, 'urlopen', lambda *a, **k: Broken())
     forecast, note = meals.weather(config, date.today(), 7)
     assert forecast == [] and 'unavailable' in note
+
+
+def test_context_trim_drops_different_recipes_each_week(tmp_path,monkeypatch):
+    config=settings(tmp_path)
+    data=json.loads(config.recipes_file.read_text())
+    data['recipes']=[{'id':str(i),'name':f'{i}.md','content':RECIPE.replace('Serves 4.', 'Long intro '*100)} for i in range(100)]
+    config.recipes_file.write_text(json.dumps(data))
+    monkeypatch.setattr(meals,'weather',lambda *a:([],None))
+    def kept_for(start):
+        seen=[]
+        def ask(system,payload,schema,settings):
+            seen.append({r['id'] for r in payload['recipes']})
+            return meals.MealChoices(meals=[])
+        monkeypatch.setattr(ai,'_ask_json',ask)
+        meals.suggest_meals(config,start)
+        return seen[0]
+    week1,week2=kept_for(date(2026,10,26)),kept_for(date(2026,11,2))
+    assert kept_for(date(2026,10,26))==week1
+    assert week1!=week2
+    assert week1!={str(i) for i in range(len(week1))}
