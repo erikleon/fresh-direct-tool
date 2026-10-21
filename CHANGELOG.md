@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 - 2026-10-21
 
 - Keep the noun when an ingredient line offers alternatives: "white or black pepper" now searches `white pepper`, not `white`, and "chicken or vegetable broth" searches `chicken broth`.
 - Strip a quantity range with a fractional upper bound ("3 to 3 1/2 cups").
