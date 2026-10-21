@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Keep the noun when an ingredient line offers alternatives: "white or black pepper" now searches `white pepper`, not `white`, and "chicken or vegetable broth" searches `chicken broth`.
+- Strip a quantity range with a fractional upper bound ("3 to 3 1/2 cups").
+- When the recipe list is too big for the model context, cut a different set each week instead of always the last recipes in the export.
+
 ## 0.6.0 - 2026-10-20
 
 - Add an optional pantry list (`FDPLANNER_PANTRY_FILE`). Confirmed items skip the shopping list. Recently bought items are marked likely on hand from order history and buying frequency, and stay on the draft.
