@@ -128,3 +128,22 @@ def test_cut_weather_response_does_not_stop_recipe_planning(tmp_path, monkeypatc
     forecast, note = meals.weather(config, date.today(), 7)
     assert forecast == [] and 'unavailable' in note
 
+
+def test_context_trim_drops_different_recipes_each_week(tmp_path,monkeypatch):
+    config=settings(tmp_path)
+    data=json.loads(config.recipes_file.read_text())
+    data['recipes']=[{'id':str(i),'name':f'{i}.md','content':RECIPE.replace('Serves 4.', 'Long intro '*100)} for i in range(100)]
+    config.recipes_file.write_text(json.dumps(data))
+    monkeypatch.setattr(meals,'weather',lambda *a:([],None))
+    def kept_for(start):
+        seen=[]
+        def ask(system,payload,schema,settings):
+            seen.append({r['id'] for r in payload['recipes']})
+            return meals.MealChoices(meals=[])
+        monkeypatch.setattr(ai,'_ask_json',ask)
+        meals.suggest_meals(config,start)
+        return seen[0]
+    week1,week2=kept_for(date(2026,10,26)),kept_for(date(2026,11,2))
+    assert kept_for(date(2026,10,26))==week1
+    assert week1!=week2
+    assert week1!={str(i) for i in range(len(week1))}
